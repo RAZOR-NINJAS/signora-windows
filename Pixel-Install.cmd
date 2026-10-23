@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-title SIGNORA // PIXEL FARM INSTALLER
+title SIGNORA // PIXEL INSTALLER
 cd /d "%~dp0"
 
 rem Fast path: a real extracted folder with the script next to this file.

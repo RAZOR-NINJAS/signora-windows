@@ -1,0 +1,72 @@
+name: Windows install
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "setup-windows.ps1"
+      - "install.ps1"
+      - "scripts/fetch_models.py"
+      - "src/signora/models/models.json"
+      - "windows/**"
+      - ".github/workflows/windows-install.yml"
+  workflow_dispatch:
+
+jobs:
+  install:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run the installer exactly as the user does
+        shell: pwsh
+        run: ./setup-windows.ps1 -NoLaunch -NoShortcut -Rebuild
+
+      - name: Verify the published app
+        shell: pwsh
+        run: |
+          $exe = "app/Signora.Windows.exe"
+          if (-not (Test-Path $exe)) { throw "Missing $exe" }
+          Write-Host "Exe size: $((Get-Item $exe).Length)"
+          $required = @(
+            "Microsoft.WindowsAppRuntime.dll",
+            "Microsoft.Graphics.Canvas.dll",
+            "Microsoft.WindowsAppRuntime.Bootstrap.dll"
+          )
+          foreach ($dll in $required) {
+            if (-not (Test-Path (Join-Path "app" $dll))) { throw "Missing runtime file $dll" }
+          }
+          $env:SIGNORA_ROOT = (Get-Location).Path
+          & ".venv/Scripts/python.exe" -c "import signora, mediapipe, cv2, torch; print('engine imports OK')"
+
+      - name: Launch smoke test
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $log = Join-Path $env:LOCALAPPDATA "Signora/startup-error.log"
+          Remove-Item $log -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath "app/Signora.Windows.exe" -WorkingDirectory "app" -PassThru
+          Start-Sleep -Seconds 20
+          $alive = -not $p.HasExited
+          Write-Host "Process alive after 20s: $alive"
+          if (Test-Path $log) {
+            Write-Host "--- startup-error.log ---"
+            Get-Content $log
+            throw "The app wrote a startup error."
+          }
+          if ($p.HasExited) { throw "The app exited early with code $($p.ExitCode)." }
+          Stop-Process -Id $p.Id -Force
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-logs
+          path: |
+            publish.log
+            install-error.log
+            model-fetch.log
+          if-no-files-found: ignore

@@ -4,7 +4,7 @@
 # Classic:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-windows.ps1
 #
-# Pixel edition (animated, farm-style installer):
+# Pixel edition (animated, game-style installer):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-windows.ps1 -Pixel
 #   or double-click Pixel-Install.cmd
 #
@@ -23,7 +23,6 @@ param(
     [switch]$SkipModels,
     [switch]$Rebuild,
     [switch]$Pixel,
-    [switch]$Ascii,
     [switch]$Silent
 )
 
@@ -33,11 +32,9 @@ $ProgressPreference = "SilentlyContinue"
 $script:PixelMode = [bool]$Pixel
 $script:Quiet = [bool]$Silent
 $script:Ansi = $false
-$script:Ascii = [bool]$Ascii
 $script:QuestIndex = 0
 $script:QuestTotal = 0
 $script:Palette = @{}
-$script:Glyph = @{}
 
 $Root = $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($Root)) {
@@ -54,12 +51,6 @@ try {
 
 function Initialize-PixelConsole {
     if (-not $script:PixelMode) { return }
-
-    try {
-        [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-    } catch {
-        $script:Ascii = $true
-    }
 
     try {
         $source = @'
@@ -94,178 +85,24 @@ public static class SignoraConsole
         $script:Ansi = $false
     }
 
-    if ($script:Ascii -or $env:SIGNORA_ASCII -eq "1") {
-        $script:Ascii = $true
-        $script:Glyph = @{
-            Full  = "#"
-            Dark  = "%"
-            Mid   = ":"
-            Light = "."
-            Upper = "^"
-            Lower = "_"
-        }
-    } else {
-        $script:Glyph = @{
-            Full  = [string][char]0x2588
-            Dark  = [string][char]0x2593
-            Mid   = [string][char]0x2592
-            Light = [string][char]0x2591
-            Upper = [string][char]0x2580
-            Lower = [string][char]0x2584
-        }
-    }
-
     $e = [char]27
     $script:Palette = @{
-        Reset    = "$e[0m"
-        Ink      = "$e[38;2;58;42;26m"
-        Dim      = "$e[38;2;120;104;84m"
-        Cream    = "$e[38;2;255;243;214m"
-        White    = "$e[38;2;255;255;255m"
-        Parch    = "$e[38;2;246;231;193m"
-        ParchDim = "$e[38;2;214;192;150m"
-        Gold     = "$e[38;2;244;196;48m"
-        GoldDark = "$e[38;2;191;144;0m"
-        Wood     = "$e[38;2;107;66;38m"
-        WoodLite = "$e[38;2;201;150;106m"
-        Green    = "$e[38;2;106;176;76m"
-        GreenDk  = "$e[38;2;62;123;39m"
-        Sky      = "$e[38;2;126;200;227m"
-        SkyDk    = "$e[38;2;74;144;217m"
-        Red      = "$e[38;2;214;72;54m"
-        BgInk    = "$e[48;2;43;29;20m"
-        BgWood   = "$e[48;2;107;66;38m"
-        BgWoodDk = "$e[48;2;74;45;26m"
-        BgParch  = "$e[48;2;246;231;193m"
-        BgSky    = "$e[48;2;126;200;227m"
-        BgSkyDk  = "$e[48;2;74;144;217m"
-        BgGreen  = "$e[48;2;106;176;76m"
-        BgGreenDk = "$e[48;2;62;123;39m"
-        BgGold   = "$e[48;2;244;196;48m"
-        BgRed    = "$e[48;2;192;57;43m"
+        Reset   = "$e[0m"
+        Text    = "$e[38;2;226;240;255m"
+        Dim     = "$e[38;2;104;122;140m"
+        Green   = "$e[38;2;57;255;20m"
+        Cyan    = "$e[38;2;0;229;255m"
+        Magenta = "$e[38;2;255;43;214m"
+        Yellow  = "$e[38;2;255;212;0m"
+        Red     = "$e[38;2;255;59;48m"
+        Purple  = "$e[38;2;122;92;255m"
     }
-}
-
-function ConvertTo-PxArt {
-    param([string]$Art)
-    $g = $script:Glyph
-    return $Art.Replace("@", $g.Full).Replace("#", $g.Full).Replace("^", $g.Upper).Replace("*", $g.Mid).Replace(".", $g.Mid)
-}
-
-function Write-PxParts {
-    param(
-        [object[]]$Parts,
-        [switch]$NoNewline
-    )
-
-    if (-not $script:PixelMode) {
-        $flat = ($Parts | ForEach-Object { $_.T }) -join ""
-        if ($NoNewline) { Write-Host $flat -NoNewline } else { Write-Host $flat }
-        return
-    }
-
-    foreach ($part in $Parts) {
-        $text = [string]$part.T
-        $tone = [string]$part.F
-        $back = [string]$part.B
-
-        if ($script:Quiet -and $tone -ne "Red") { continue }
-        if ([string]::IsNullOrEmpty($text)) { continue }
-
-        if ($script:Ansi) {
-            $fg = $script:Palette[$tone]
-            $bg = $script:Palette[$back]
-            if (-not $fg) { $fg = $script:Palette.Text }
-            [Console]::Write("$fg$bg$text$($script:Palette.Reset)")
-        } else {
-            $color = if ($tone) { $tone } else { "White" }
-            switch ($tone) {
-                "Ink"      { $color = "Black" }
-                "Cream"    { $color = "White" }
-                "Parch"    { $color = "White" }
-                "ParchDim" { $color = "Gray" }
-                "Dim"      { $color = "DarkGray" }
-                "Gold"     { $color = "Yellow" }
-                "GoldDark" { $color = "DarkYellow" }
-                "Wood"     { $color = "DarkYellow" }
-                "WoodLite" { $color = "Yellow" }
-                "Green"    { $color = "Green" }
-                "GreenDk"  { $color = "DarkGreen" }
-                "Sky"      { $color = "Cyan" }
-                "SkyDk"    { $color = "DarkCyan" }
-                "Red"      { $color = "Red" }
-                default    { $color = "White" }
-            }
-            Write-Host $text -ForegroundColor $color -NoNewline
-        }
-    }
-
-    if ($NoNewline) { return }
-    if ($script:Ansi) { [Console]::WriteLine() } else { Write-Host "" }
-}
-
-function Write-PxSolid {
-    param(
-        [string]$Text = "",
-        [string]$Fg = "Ink",
-        [string]$Bg = "BgParch",
-        [int]$Width = 0,
-        [string]$Align = "Left"
-    )
-
-    if ($Width -gt $Text.Length) {
-        $gap = $Width - $Text.Length
-        switch ($Align) {
-            "Center" {
-                $left = [int][Math]::Floor($gap / 2)
-                $Text = (" " * $left) + $Text + (" " * ($gap - $left))
-            }
-            "Right" {
-                $Text = (" " * $gap) + $Text
-            }
-            default {
-                $Text = $Text + (" " * $gap)
-            }
-        }
-    }
-
-    Write-PxParts -Parts @(@{ T = $Text; F = $Fg; B = $Bg })
-}
-
-function Write-PxPanel {
-    param(
-        [string[]]$Lines,
-        [int]$Width = 62,
-        [string]$Fg = "Ink",
-        [string]$Bg = "BgParch",
-        [int]$PadX = 2
-    )
-
-    $frame = $script:Glyph.Dark
-    $field = $Width - ($PadX * 2)
-
-    Write-PxParts -Parts @(@{ T = (" " * 2); F = "Cream"; B = "" }, @{ T = ($frame * ($Width + 2)); F = "WoodLite"; B = "BgWood" })
-    foreach ($line in $Lines) {
-        $text = $line
-        if ($text.Length -gt $field) { $text = $text.Substring(0, $field) }
-        $gap = $field - $text.Length
-        $left = [int][Math]::Floor($gap / 2)
-        Write-PxParts -Parts @(
-            @{ T = (" " * 2); F = "Cream"; B = "" },
-            @{ T = $frame; F = "WoodLite"; B = "BgWood" },
-            @{ T = (" " * $PadX); F = $Fg; B = $Bg },
-            @{ T = ((" " * $left) + $text + (" " * ($gap - $left))); F = $Fg; B = $Bg },
-            @{ T = (" " * $PadX); F = $Fg; B = $Bg },
-            @{ T = $frame; F = "WoodLite"; B = "BgWood" }
-        )
-    }
-    Write-PxParts -Parts @(@{ T = (" " * 2); F = "Cream"; B = "" }, @{ T = ($frame * ($Width + 2)); F = "WoodLite"; B = "BgWood" })
 }
 
 function Write-Px {
     param(
         [string]$Text = "",
-        [string]$Tone = "Cream",
+        [string]$Tone = "Text",
         [switch]$NoNewline
     )
 
@@ -282,27 +119,26 @@ function Write-Px {
             return
         }
         $out = "$($script:Palette[$Tone])$Text$($script:Palette.Reset)"
-        if ($NoNewline) { [Console]::Write($out) } else { [Console]::WriteLine($out) }
+        if ($NoNewline) {
+            [Console]::Write($out)
+        } else {
+            [Console]::WriteLine($out)
+        }
         return
     }
 
-    $color = "White"
-    switch ($Tone) {
-        "Ink"      { $color = "Black" }
-        "Cream"    { $color = "White" }
-        "Parch"    { $color = "White" }
-        "ParchDim" { $color = "Gray" }
-        "Dim"      { $color = "DarkGray" }
-        "Gold"     { $color = "Yellow" }
-        "GoldDark" { $color = "DarkYellow" }
-        "Wood"     { $color = "DarkYellow" }
-        "WoodLite" { $color = "Yellow" }
-        "Green"    { $color = "Green" }
-        "GreenDk"  { $color = "DarkGreen" }
-        "Sky"      { $color = "Cyan" }
-        "SkyDk"    { $color = "DarkCyan" }
-        "Red"      { $color = "Red" }
+    $map = @{
+        Text    = "White"
+        Dim     = "DarkGray"
+        Green   = "Green"
+        Cyan    = "Cyan"
+        Magenta = "Magenta"
+        Yellow  = "Yellow"
+        Red     = "Red"
+        Purple  = "Magenta"
     }
+    $color = $map[$Tone]
+    if (-not $color) { $color = "White" }
     if ($NoNewline) {
         Write-Host $Text -ForegroundColor $color -NoNewline
     } else {
@@ -313,7 +149,7 @@ function Write-Px {
 function Write-Typewriter {
     param(
         [string]$Text,
-        [string]$Tone = "Cream",
+        [string]$Tone = "Text",
         [int]$DelayMs = 4
     )
 
@@ -347,37 +183,32 @@ function Invoke-PixelBeep {
 
 function Invoke-PixelChime {
     if (-not $script:PixelMode -or $script:Quiet) { return }
-    foreach ($note in @(392, 523, 659, 784, 1047)) {
+    foreach ($note in @(523, 659, 784, 1047)) {
         try {
-            [Console]::Beep($note, 85)
+            [Console]::Beep($note, 90)
         } catch {
             return
         }
-        Start-Sleep -Milliseconds 12
+        Start-Sleep -Milliseconds 15
     }
 }
 
-function Write-PixelScene {
-    if (-not $script:PixelMode -or $script:Quiet) { return }
-
-    $rows = @(
-        @{ A = "                                                                "; F = "Cream";   B = "BgSky" },
-        @{ A = "                              @@@@                              "; F = "Gold";    B = "BgSky" },
-        @{ A = "                    **        @@@@@@        **                  "; F = "White";   B = "BgSky" },
-        @{ A = "     ^^^^^^       ^^^^^^^^^@   @@@@   ^^^^^^^^^^^^               "; F = "GreenDk"; B = "BgSky" },
-        @{ A = " ###############  ##################  ####################      "; F = "Green";   B = "BgSky" },
-        @{ A = "################################################################"; F = "GreenDk"; B = "BgGreenDk" }
+function Write-PixelBar {
+    param(
+        [int]$Done,
+        [int]$Total,
+        [int]$Width = 28
     )
 
-    foreach ($row in $rows) {
-        $art = $row.A.PadRight(64)
-        if ($art.Length -gt 64) { $art = $art.Substring(0, 64) }
-        $art = ConvertTo-PxArt $art
-        Write-PxParts -Parts @(
-            @{ T = "  "; F = "Cream"; B = "" },
-            @{ T = $art; F = $row.F; B = $row.B }
-        )
-    }
+    if (-not $script:PixelMode -or $script:Quiet -or $Total -le 0) { return }
+
+    $ratio = [Math]::Min(1.0, [Math]::Max(0.0, $Done / [double]$Total))
+    $filled = [int][Math]::Round($Width * $ratio)
+    $empty = $Width - $filled
+    $bar = ("#" * $filled) + ("-" * $empty)
+    $pct = [int][Math]::Round($ratio * 100)
+
+    Write-Px ("      [$bar]  {0,3}%" -f $pct) "Cyan"
 }
 
 function Write-PixelLogo {
@@ -392,46 +223,43 @@ function Write-PixelLogo {
         @("#### ", "#   #", "#### ", "#  # ", "#   #"),
         @(" ### ", "#   #", "#####", "#   #", "#   #")
     )
+    $tones = @("Cyan", "Cyan", "Green", "Yellow", "Magenta")
 
-    $lines = @()
+    Write-Px ""
     for ($row = 0; $row -lt 5; $row++) {
-        $lines += (($letters | ForEach-Object { $_[$row] }) -join " ")
+        $line = ($letters | ForEach-Object { $_[$row] }) -join " "
+        Write-Px ("  " + $line) $tones[$row]
     }
-    $lines += ""
-    $lines += "OFFLINE SIGN LANGUAGE   -   WINDOWS"
-
-    Write-PxPanel -Lines $lines -Width 62 -Fg "Wood" -Bg "BgParch"
+    Write-Px ""
+    Write-Px "  OFFLINE SIGN LANGUAGE ENGINE  ::  WINDOWS EDITION" "Dim"
+    Write-Px "  =================================================" "Dim"
 }
 
 function Show-PixelBoot {
     if (-not $script:PixelMode) { return }
-    if ($script:Quiet) { return }
 
-    try { Clear-Host } catch { }
+    if (-not $script:Quiet) {
+        try { Clear-Host } catch { }
+        Write-PixelLogo
+        Write-Px ""
 
-    $width = 64
-    $frame = $script:Glyph.Dark
-    Write-PxSolid (" " * $width) "Cream" "BgSky"
-    Write-PixelScene
-    Write-Px ""
-    Write-PixelLogo
-    Write-Px ""
+        $os = "UNKNOWN"
+        try { $os = [Environment]::OSVersion.VersionString.ToUpper() } catch { }
+        $ps = $PSVersionTable.PSVersion.ToString()
 
-    $os = "UNKNOWN"
-    try { $os = [Environment]::OSVersion.VersionString.ToUpper() } catch { }
-    $ps = $PSVersionTable.PSVersion.ToString()
-
-    Write-Typewriter "  > SIGNORA SETUP CORE v2.0" "Gold"
-    Write-Typewriter "  > HOST ..................... $os" "Dim"
-    Write-Typewriter "  > SHELL .................... POWERSHELL $ps" "Dim"
-    Write-Typewriter "  > MODE ..................... NON-ADMIN, USER-LOCAL" "Dim"
-    Write-Typewriter "  > SAFETY ................... ONLY THIS FOLDER + %LOCALAPPDATA% SIGNORA" "Dim"
-    Write-Typewriter "  > Your documents and photos are never touched." "Green"
-    Write-Typewriter "  > Reruns check what is already installed and skip it." "Green"
-    Write-Px ""
-    Invoke-PixelBeep -Frequency 523 -Milliseconds 45
-    Invoke-PixelBeep -Frequency 659 -Milliseconds 45
-    Start-Sleep -Milliseconds 200
+        Write-Typewriter "  > SIGNORA SETUP CORE v1.0" "Cyan"
+        Write-Typewriter "  > HOST ...................... $os" "Dim"
+        Write-Typewriter "  > SHELL ..................... POWERSHELL $ps" "Dim"
+        Write-Typewriter "  > MODE ...................... NON-ADMIN / USER-LOCAL" "Dim"
+        Write-Typewriter "  > TARGET .................... NATIVE WINUI 3 APP" "Dim"
+        Write-Typewriter "  > SAFETY .................... THIS FOLDER + %LOCALAPPDATA% SIGNORA ONLY" "Dim"
+        Write-Typewriter "  > Your documents, photos and other files are never touched." "Green"
+        Write-Typewriter "  > ALL SYSTEMS NOMINAL. PRESS ON, PLAYER." "Green"
+        Write-Px ""
+        Invoke-PixelBeep -Frequency 440 -Milliseconds 50
+        Invoke-PixelBeep -Frequency 660 -Milliseconds 50
+        Start-Sleep -Milliseconds 250
+    }
 }
 
 function Write-PixelQuest {
@@ -439,44 +267,14 @@ function Write-PixelQuest {
 
     if (-not $script:PixelMode -or $script:Quiet) { return }
 
-    $label = " QUEST {0}/{1} " -f $script:QuestIndex, $script:QuestTotal
-    $body = " " + $Text.ToUpper()
-    $used = $label.Length + $body.Length
-    $pad = [Math]::Max(1, 64 - $used)
+    $label = "QUEST {0:D2}/{1:D2}" -f $script:QuestIndex, $script:QuestTotal
 
     Write-Px ""
-    Write-PxParts -Parts @(
-        @{ T = "  "; F = "Cream"; B = "" },
-        @{ T = $label; F = "Gold"; B = "BgWood" },
-        @{ T = $body; F = "Cream"; B = "BgWood" },
-        @{ T = (" " * $pad); F = "Cream"; B = "BgWood" }
-    )
+    Write-Px ("  " + ("=" * 58)) "Purple"
+    Write-Px ("   >> $label   $($Text.ToUpper())") "Cyan"
+    Write-Px ("  " + ("=" * 58)) "Purple"
     Write-PixelBar -Done ($script:QuestIndex - 1) -Total $script:QuestTotal
-    Invoke-PixelBeep -Frequency 784 -Milliseconds 30
-}
-
-function Write-PixelBar {
-    param(
-        [int]$Done,
-        [int]$Total,
-        [int]$Width = 55
-    )
-
-    if (-not $script:PixelMode -or $script:Quiet -or $Total -le 0) { return }
-
-    $ratio = [Math]::Min(1.0, [Math]::Max(0.0, $Done / [double]$Total))
-    $filled = [int][Math]::Round($Width * $ratio)
-    $empty = $Width - $filled
-    $pct = [int][Math]::Round($ratio * 100)
-
-    Write-PxParts -Parts @(
-        @{ T = "   "; F = "Cream"; B = "" },
-        @{ T = ">"; F = "GoldDark"; B = "" },
-        @{ T = ($script:Glyph.Full * $filled); F = "Gold"; B = "" },
-        @{ T = ($script:Glyph.Light * $empty); F = "Wood"; B = "" },
-        @{ T = "<"; F = "GoldDark"; B = "" },
-        @{ T = ("  {0,3}%" -f $pct); F = "Cream"; B = "" }
-    )
+    Invoke-PixelBeep -Frequency 740 -Milliseconds 35
 }
 
 function Show-PixelVictory {
@@ -491,30 +289,25 @@ function Show-PixelVictory {
     if ($script:Quiet) { return }
 
     Write-Px ""
-    Write-PxSolid (" " * 66) "Cream" "BgGold"
-    Write-PxSolid ("  *  M I S S I O N   C O M P L E T E  *" ) "Ink" "BgGold" 66 "Center"
-    Write-PxSolid (" " * 66) "Cream" "BgGold"
+    Write-Px ("  " + ("#" * 62)) "Green"
+    Write-Px ("  #" + (" " * 60) + "#") "Green"
+    Write-Px ("  #" + "   ***  M I S S I O N   C O M P L E T E  ***".PadRight(60) + "#") "Yellow"
+    Write-Px ("  #" + "       SIGNORA IS ONLINE. ALL SYSTEMS GO.".PadRight(60) + "#") "Green"
+    Write-Px ("  #" + (" " * 60) + "#") "Green"
+    Write-Px ("  " + ("#" * 62)) "Green"
     Write-Px ""
-
-    $lines = @(
-        "SIGNORA IS ONLINE.",
-        "",
-        "APP     $AppExe",
-        "PYTHON  $PythonExe",
-        "ROOT    $RootPath",
-        "LOG     $LogPath",
-        "",
-        "SAFE RUN - NOTHING OUTSIDE THESE FOLDERS WAS MODIFIED",
-        "HIGH SCORE $($script:QuestTotal) / $($script:QuestTotal) QUESTS"
-    )
-    Write-PxPanel -Lines $lines -Width 62 -Fg "Ink" -Bg "BgParch"
-
+    Write-Px "   APP       $AppExe" "Text"
+    Write-Px "   PYTHON    $PythonExe" "Text"
+    Write-Px "   ROOT      $RootPath" "Text"
+    Write-Px "   LOG       $LogPath" "Dim"
     Write-Px ""
-    Write-PxParts -Parts @(
-        @{ T = "  "; F = "Cream"; B = "" },
-        @{ T = ($script:Glyph.Full * 64); F = "Green"; B = "" }
-    )
-    Write-Px "   Press any key in the other window to close the installer." "Dim"
+    Write-PixelBar -Done 1 -Total 1
+    Write-Px "   HIGH SCORE   $($script:QuestTotal) / $($script:QuestTotal) QUESTS" "Magenta"
+    Write-Px "   SAFE RUN     NOTHING OUTSIDE THESE FOLDERS WAS MODIFIED" "Green"
+    Write-Px ""
+    Write-Px "   If the preview is black, open Settings and change the camera index." "Dim"
+    Write-Px "   If the native build fails, read the compiler log above." "Dim"
+    Write-Px ""
     Invoke-PixelChime
 }
 
@@ -542,13 +335,7 @@ function Write-Step([string]$Text) {
 
 function Write-Ok([string]$Text) {
     if ($script:PixelMode) {
-        Write-PxParts -Parts @(
-            @{ T = "   "; F = "Cream"; B = "" },
-            @{ T = "["; F = "GoldDark"; B = "" },
-            @{ T = "+"; F = "Green"; B = "" },
-            @{ T = "]"; F = "GoldDark"; B = "" },
-            @{ T = " $Text"; F = "Green"; B = "" }
-        )
+        Write-Px "     [+] $Text" "Green"
         return
     }
     Write-Host "  [OK] $Text" -ForegroundColor Green
@@ -556,14 +343,8 @@ function Write-Ok([string]$Text) {
 
 function Write-Warn([string]$Text) {
     if ($script:PixelMode) {
-        Write-PxParts -Parts @(
-            @{ T = "   "; F = "Cream"; B = "" },
-            @{ T = "["; F = "GoldDark"; B = "" },
-            @{ T = "!"; F = "Gold"; B = "" },
-            @{ T = "]"; F = "GoldDark"; B = "" },
-            @{ T = " $Text"; F = "Gold"; B = "" }
-        )
-        Invoke-PixelBeep -Frequency 320 -Milliseconds 60
+        Write-Px "     [!] $Text" "Yellow"
+        Invoke-PixelBeep -Frequency 320 -Milliseconds 70
         return
     }
     Write-Host "  [!] $Text" -ForegroundColor Yellow
@@ -571,14 +352,8 @@ function Write-Warn([string]$Text) {
 
 function Write-Fail([string]$Text) {
     if ($script:PixelMode) {
-        Write-PxParts -Parts @(
-            @{ T = "   "; F = "Cream"; B = "" },
-            @{ T = "["; F = "GoldDark"; B = "" },
-            @{ T = "X"; F = "Red"; B = "" },
-            @{ T = "]"; F = "GoldDark"; B = "" },
-            @{ T = " $Text"; F = "Red"; B = "" }
-        )
-        Invoke-PixelBeep -Frequency 180 -Milliseconds 200
+        Write-Px "     [X] $Text" "Red"
+        Invoke-PixelBeep -Frequency 180 -Milliseconds 220
         return
     }
     Write-Host "  [ERROR] $Text" -ForegroundColor Red
@@ -659,7 +434,7 @@ if (-not (Test-Path $project)) {
     exit 1
 }
 
-$script:QuestTotal = 5
+$script:QuestTotal = 4
 if (-not $SkipModels) { $script:QuestTotal++ }
 if (-not $NoShortcut) { $script:QuestTotal++ }
 if (-not $NoLaunch) { $script:QuestTotal++ }
