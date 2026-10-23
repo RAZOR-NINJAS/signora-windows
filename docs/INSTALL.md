@@ -73,14 +73,13 @@ signora doctor
 ```
 
 ### Windows One-Shot Setup
-**Extract the ZIP first.** Running files from inside the archive starts a
-temporary copy under `%TEMP%` and the scripts fail with
-`The argument ... to the -File parameter does not exist`. Right-click the ZIP,
-choose **Extract All...**, and use the extracted folder.
-
 Open [signora-windows](https://github.com/RAZOR-NINJAS/signora-windows), choose
-**Code > Download ZIP**, extract it to `C:\Signora`, then from that folder
-double-click `Pixel-Install.cmd` for the animated pixel-game installer, or run:
+**Code > Download ZIP**, then double-click `Pixel-Install.cmd` inside the
+downloaded ZIP. Running it from the ZIP preview is supported: the launcher
+downloads a clean copy to `%LOCALAPPDATA%\Signora\app` and continues there.
+Extracting first is faster but optional.
+
+From an extracted folder:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-windows.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-windows.ps1 -Pixel
@@ -89,6 +88,10 @@ This provisions Python 3.11, PyTorch CPU, MediaPipe, OpenCV, the model assets,
 a user-local .NET 8 SDK, publishes the native WinUI 3 app, creates a desktop
 shortcut, and launches it. No preinstalled Python, OpenCV, or Visual Studio is
 required. The build log is written to `publish.log`.
+
+Only the install folder, `%LOCALAPPDATA%\Signora`, and a desktop shortcut are
+written to. No administrator rights are needed, and nothing else on the disk is
+modified.
 
 For the guided installer with prompts, double-click `Install-Signora.cmd`.
 

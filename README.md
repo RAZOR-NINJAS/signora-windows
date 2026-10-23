@@ -44,29 +44,21 @@ curl -fsSL https://raw.githubusercontent.com/RAZOR-NINJAS/signora/main/install.s
 ```
 
 ### Windows 10 & 11 (Native WinUI 3 App, Non-Admin)
-**Extract the ZIP before running anything.** Double-clicking a file inside the
-archive opens a temporary copy under `%TEMP%`, and the scripts cannot run from
-there. Right-click the ZIP, choose **Extract All...**, then run the installer
-from the extracted folder.
-
 Open [signora-windows](https://github.com/RAZOR-NINJAS/signora-windows), choose
-**Code > Download ZIP**, extract it to a real folder such as `C:\Signora`, then
-double-click **`Pixel-Install.cmd`** for the animated, game-style installer, or
-**`Setup-Windows.cmd`** for the plain one. With git:
-```powershell
-git clone https://github.com/RAZOR-NINJAS/signora-windows.git
-cd signora-windows
-```
+**Code > Download ZIP**, then double-click **`Pixel-Install.cmd`** inside the
+downloaded ZIP. That works even from the ZIP preview: the launcher downloads a
+clean copy to `%LOCALAPPDATA%\Signora\app` and continues there. Extracting the
+ZIP first is faster but not required.
 
-Both installers do the same one-shot setup, build, and launch. They provision
-everything the laptop is missing: Python 3.11, OpenCV, MediaPipe, PyTorch CPU,
-model weights, a user-local .NET 8 SDK, and the self-contained WinUI 3 app. No
-preinstalled Python, OpenCV, or Visual Studio is required.
+`Pixel-Install.cmd` is the animated installer; **`Setup-Windows.cmd`** is the
+plain one. Both run the same one-shot setup, build, and launch, and both
+provision everything the laptop is missing: Python 3.11, OpenCV, MediaPipe,
+PyTorch CPU, model weights, a user-local .NET 8 SDK, and the self-contained
+WinUI 3 app. No preinstalled Python, OpenCV, or Visual Studio is required.
 
-The pixel installer can also be started from PowerShell:
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-windows.ps1 -Pixel
-```
+The installer writes only inside the extracted folder and
+`%LOCALAPPDATA%\Signora`, plus a desktop shortcut. It never modifies documents,
+photos, or any other user files, and it does not require administrator rights.
 
 For the guided installer with prompts, use **`Install-Signora.cmd`**, or run:
 ```powershell

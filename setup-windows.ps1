@@ -248,6 +248,8 @@ function Show-PixelBoot {
         Write-Typewriter "  > SHELL ..................... POWERSHELL $ps" "Dim"
         Write-Typewriter "  > MODE ...................... NON-ADMIN / USER-LOCAL" "Dim"
         Write-Typewriter "  > TARGET .................... NATIVE WINUI 3 APP" "Dim"
+        Write-Typewriter "  > SAFETY .................... THIS FOLDER + %LOCALAPPDATA% SIGNORA ONLY" "Dim"
+        Write-Typewriter "  > Your documents, photos and other files are never touched." "Green"
         Write-Typewriter "  > ALL SYSTEMS NOMINAL. PRESS ON, PLAYER." "Green"
         Write-Px ""
         Invoke-PixelBeep -Frequency 440 -Milliseconds 50
@@ -297,6 +299,7 @@ function Show-PixelVictory {
     Write-Px ""
     Write-PixelBar -Done 1 -Total 1
     Write-Px "   HIGH SCORE   $($script:QuestTotal) / $($script:QuestTotal) QUESTS" "Magenta"
+    Write-Px "   SAFE RUN     NOTHING OUTSIDE THESE FOLDERS WAS MODIFIED" "Green"
     Write-Px ""
     Write-Px "   If the preview is black, open Settings and change the camera index." "Dim"
     Write-Px "   If the native build fails, read the compiler log above." "Dim"

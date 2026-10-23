@@ -20,13 +20,13 @@ control of the visual design.
 
 ## One-click install (stock Windows laptop)
 
-**Extract the ZIP first.** Double-clicking a file inside the archive runs it
-from a temporary `%TEMP%` copy, and PowerShell then reports
-`The argument ... to the -File parameter does not exist`. Right-click the ZIP,
-choose **Extract All...**, and run the installer from the extracted folder.
+Open [signora-windows](https://github.com/RAZOR-NINJAS/signora-windows), choose
+**Code > Download ZIP**, then double-click **`Pixel-Install.cmd`** in the ZIP.
+It works from the ZIP preview: the launcher downloads a clean copy to
+`%LOCALAPPDATA%\Signora\app` and continues from there. Extracting first is
+faster but not required.
 
-1. Copy or clone this repository onto the Windows laptop, or extract the ZIP to
-   a real folder such as `C:\Signora`.
+1. Download the ZIP.
 2. Double-click **`Pixel-Install.cmd`** for the game-style installer, or
    **`Setup-Windows.cmd`** for the plain one.
 3. The script provisions:
