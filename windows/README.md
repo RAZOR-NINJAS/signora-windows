@@ -26,6 +26,10 @@ It works from the ZIP preview: the launcher downloads a clean copy to
 `%LOCALAPPDATA%\Signora\app` and continues from there. Extracting first is
 faster but not required.
 
+The installer is safe to run again. It verifies the Python packages, the model
+checksums, and the app build, then skips whatever is already in place. Use
+`-Rebuild` to force a fresh `dotnet publish`.
+
 1. Download the ZIP.
 2. Double-click **`Pixel-Install.cmd`** for the game-style installer, or
    **`Setup-Windows.cmd`** for the plain one.

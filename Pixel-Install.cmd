@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-title SIGNORA // PIXEL INSTALLER
+title SIGNORA // PIXEL FARM INSTALLER
 cd /d "%~dp0"
 
 rem Fast path: a real extracted folder with the script next to this file.
@@ -14,6 +14,7 @@ goto :bootstrap
 :run_local
 if exist "%~dp0install-error.log" del /q "%~dp0install-error.log" >nul 2>&1
 
+chcp 65001 >nul 2>&1
 mode con: cols=78 lines=40 >nul 2>&1
 
 rem Files from a downloaded ZIP carry the Mark-of-the-Web, which makes the

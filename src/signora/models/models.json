@@ -5,7 +5,7 @@
       "filename": "hand_landmarker.task",
       "subdir": "vision",
       "description": "MediaPipe HandLandmarker Tasks API model",
-      "size_bytes": 7868898,
+      "size_bytes": 7819105,
       "sha256": "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1",
       "urls": [
         "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
@@ -16,7 +16,7 @@
       "filename": "en_US-lessac-medium.onnx",
       "subdir": "tts",
       "description": "Piper offline neural TTS voice model (Lessac medium)",
-      "size_bytes": 63948012,
+      "size_bytes": 63201294,
       "sha256": "5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f",
       "urls": [
         "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx",
@@ -27,7 +27,7 @@
       "filename": "en_US-lessac-medium.onnx.json",
       "subdir": "tts",
       "description": "Piper TTS voice configuration",
-      "size_bytes": 4874,
+      "size_bytes": 4885,
       "sha256": "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0",
       "urls": [
         "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json",
@@ -38,7 +38,7 @@
       "filename": "signs_mlp.pt",
       "subdir": "asl",
       "description": "74D ASL static letters MLP classifier",
-      "size_bytes": 165190,
+      "size_bytes": 164261,
       "sha256": "9670be00cff21e416fc1f76d360fc0f4dbe0ffa7f0e62794ce59f7b07d755ad9",
       "urls": [
         "https://github.com/RAZOR-NINJAS/signora/releases/download/v0.1.0/signs_mlp.pt"
@@ -71,7 +71,8 @@
       "size_bytes": 4126810,
       "sha256": "4d8b4a53282dc83ef04e3e7dbc4fbc98082e34e44ed798e16c3a0cdd4c584faf",
       "urls": [
-        "https://storage.googleapis.com/mediapipe-models/audio_classifier/yamnet/float32/1/yamnet.tflite"
+        "https://storage.googleapis.com/mediapipe-models/audio_classifier/yamnet/float32/1/yamnet.tflite",
+        "https://github.com/RAZOR-NINJAS/signora/releases/download/v0.1.0/yamnet.tflite"
       ]
     }
   }
