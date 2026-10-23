@@ -74,6 +74,16 @@
         "https://storage.googleapis.com/mediapipe-models/audio_classifier/yamnet/float32/1/yamnet.tflite",
         "https://github.com/RAZOR-NINJAS/signora/releases/download/v0.1.0/yamnet.tflite"
       ]
+    },
+    "isl_spatial": {
+      "filename": "isl_spatial_mlp.pt",
+      "subdir": "isl",
+      "description": "220D ISL spatial MLP classifier trained on BlazePose body anchors",
+      "size_bytes": 286469,
+      "sha256": "db83db58820b6e6980f7d39d122f014b527cadfe3e80b35d358d9df243255a80",
+      "urls": [
+        "https://github.com/RAZOR-NINJAS/signora/releases/download/v0.1.0/isl_spatial_mlp.pt"
+      ]
     }
   }
 }
