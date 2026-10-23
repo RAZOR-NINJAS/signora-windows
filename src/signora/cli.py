@@ -305,6 +305,11 @@ def create_parser() -> argparse.ArgumentParser:
     p_train.add_argument(
         "-i", "--import-file", "--import", dest="import_file", default=None, help="Import phone-exported dataset JSON file before training"
     )
+    p_train.add_argument(
+        "--exclude",
+        default="",
+        help="Comma-separated labels to drop from baseline and imported data (e.g. SUII_MOTION)",
+    )
 
     # 9.6 signora dataset
     p_dataset = subparsers.add_parser(
@@ -332,6 +337,11 @@ def create_parser() -> argparse.ArgumentParser:
     )
     p_dataset.add_argument(
         "--epochs", type=int, default=50, help="Number of training epochs (default: 50)"
+    )
+    p_dataset.add_argument(
+        "--exclude",
+        default="",
+        help="Comma-separated labels to drop from baseline and imported data (e.g. SUII_MOTION)",
     )
 
     # 10. signora alert (Hear Through Your Eyes)
@@ -458,7 +468,35 @@ def create_parser() -> argparse.ArgumentParser:
         "--gemini-key", default=None, help="Google Gemini API key for grammar synthesis"
     )
 
-    # 13. signora phone (One-command zero-latency phone webcam bridge)
+    # 13. signora native (local engine bridge for the WinUI 3 desktop app)
+    p_native = subparsers.add_parser(
+        "native",
+        help="Run the local engine bridge for the native Windows desktop app",
+    )
+    p_native.add_argument(
+        "--mode", choices=["asl", "isl", "body"], default="isl", help="Sign language mode"
+    )
+    p_native.add_argument(
+        "-s", "--source", default="0", help="Camera index or video file (default: 0)"
+    )
+    p_native.add_argument("--port", type=int, default=8899, help="Local bridge port (default: 8899)")
+    p_native.add_argument(
+        "--no-tts", action="store_true", help="Disable Piper audio speech feedback"
+    )
+    p_native.add_argument(
+        "--dwell", type=int, default=None, help="Hold dwell duration in ms for sign confirmation"
+    )
+    p_native.add_argument(
+        "--fake-camera", action="store_true", help="Use synthetic camera for testing"
+    )
+    p_native.add_argument(
+        "--no-mirror", action="store_true", help="Disable camera mirroring"
+    )
+    p_native.add_argument(
+        "--threshold", type=float, default=None, help="Confidence threshold (0.0-1.0)"
+    )
+
+    # 14. signora phone (One-command zero-latency phone webcam bridge)
     p_phone = subparsers.add_parser(
         "phone",
         parents=[res_parser],
@@ -862,12 +900,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         from pathlib import Path
         from signora.isl.train import DATA_DIR, DATA_SPATIAL_DIR, train_isl_model
 
+        exclude_labels = [s.strip() for s in (getattr(args, "exclude", "") or "").split(",") if s.strip()]
+
         if getattr(args, "import_file", None):
             from signora.isl.import_dataset import import_phone_dataset
             res = import_phone_dataset(
                 json_path=Path(args.import_file),
                 epochs=args.epochs,
                 auto_train=True,
+                exclude_labels=exclude_labels or None,
             )
             return 0 if res.get("success") else 1
 
@@ -883,6 +924,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             epochs=args.epochs,
             lr=args.lr,
             in_dim=in_dim,
+            exclude_labels=exclude_labels or None,
         )
         return 0 if res.get("success") else 1
 
@@ -908,10 +950,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 0
 
         if args.action == "import":
+            exclude_labels = [s.strip() for s in (getattr(args, "exclude", "") or "").split(",") if s.strip()]
             res = import_phone_dataset(
                 json_path=file_path,
                 auto_train=args.train,
                 epochs=args.epochs,
+                exclude_labels=exclude_labels or None,
             )
             return 0 if res.get("success") else 1
 
@@ -994,6 +1038,21 @@ def main(argv: Optional[List[str]] = None) -> int:
             fake_camera=args.fake_camera,
             width=w,
             height=h,
+        )
+
+    if args.subcommand == "native":
+        from signora.native_bridge import run_native_bridge
+
+        source = int(args.source) if str(args.source).isdigit() else args.source
+        return run_native_bridge(
+            mode=args.mode,
+            source=source,
+            port=args.port,
+            no_tts=args.no_tts,
+            dwell_ms=args.dwell,
+            fake_camera=args.fake_camera,
+            mirror=not args.no_mirror,
+            threshold=args.threshold,
         )
 
     if args.subcommand in ("stream", "vcam"):

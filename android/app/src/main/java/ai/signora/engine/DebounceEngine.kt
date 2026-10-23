@@ -410,10 +410,9 @@ class DebounceEngine(
         )
 
         // Motion signs that must hold a dwell instead of the 3-frame fast commit:
-        // user-trained signs (no built-in trajectory backs them up) and multi-stage
-        // signs like MY_NAME_IS, whose opening phase already reads as the full sign.
-        // MY_NAME_IS deliberately has no override, so its hold follows the dwell profile.
-        val SLOW_MOTION_SIGNS = setOf("SUII_MOTION", "HALA_MADRID_MOTION", "MY_NAME_IS_MOTION")
+        // user-trained signs with no built-in trajectory to back them up.
+        // MY_NAME_IS is a deliberate chest tap, so it uses the fast motion path.
+        val SLOW_MOTION_SIGNS = setOf("SUII_MOTION", "HALA_MADRID_MOTION")
 
         // Per-sign dwell requirements, in milliseconds. Signs left out of this table
         // follow the user's dwell profile (FLUID 500 / STANDARD 1000 / STEADY 1500).

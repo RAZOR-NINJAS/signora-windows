@@ -21,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -91,6 +92,7 @@ fun LearnScreen(
     onModeChange: (RecognitionMode) -> Unit,
     debounceState: DebounceState,
     previewView: PreviewView? = null,
+    desktopMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val guides = if (currentMode == RecognitionMode.ISL) ISL_GUIDES else ASL_GUIDES
@@ -100,12 +102,18 @@ fun LearnScreen(
     val activeGuide = guides.find { it.letter == selectedLetter } ?: guides.first()
     val isMatched = debounceState.candidate.equals(selectedLetter, ignoreCase = true)
     val isMastered = isMatched && debounceState.dwellProgress >= 1f
+    val configuration = LocalConfiguration.current
+    val contentPadding = if (desktopMode) {
+        (((configuration.screenWidthDp.dp - 1100.dp) / 2f).coerceAtLeast(AppTheme.spacing.large))
+    } else {
+        AppTheme.spacing.medium
+    }
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .padding(horizontal = AppTheme.spacing.medium)
+            .padding(horizontal = contentPadding)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(AppTheme.spacing.medium)
     ) {

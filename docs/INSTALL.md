@@ -12,11 +12,14 @@ Run the one-line bootstrap in your terminal:
 curl -fsSL https://raw.githubusercontent.com/RAZOR-NINJAS/signora/main/install.sh | bash
 ```
 
-### Windows 10 & 11 (Non-Admin / Barebones Laptop)
-Open standard PowerShell (no administrator privileges required) and run:
+### Windows 10 & 11 (Native WinUI 3 App, Non-Admin / Barebones Laptop)
+Double-click `Install-Signora.cmd` in the repository root, or run:
 ```powershell
-irm https://raw.githubusercontent.com/RAZOR-NINJAS/signora/main/install.ps1 | iex
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
+The bootstrap provisions Python 3.11, OpenCV, MediaPipe, PyTorch CPU, the model
+assets, a user-local .NET 8 SDK, and the self-contained WinUI 3 app. No Python,
+OpenCV, or Visual Studio is required before starting.
 
 ---
 
@@ -69,6 +72,20 @@ python scripts/fetch_models.py
 signora doctor
 ```
 
+### Windows One-Shot Setup
+From the repository root on a stock Windows 10/11 laptop, double-click
+`Pixel-Install.cmd` for the animated pixel-game installer, or run:
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-windows.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-windows.ps1 -Pixel
+```
+This provisions Python 3.11, PyTorch CPU, MediaPipe, OpenCV, the model assets,
+a user-local .NET 8 SDK, publishes the native WinUI 3 app, creates a desktop
+shortcut, and launches it. No preinstalled Python, OpenCV, or Visual Studio is
+required. The build log is written to `publish.log`.
+
+For the guided installer with prompts, double-click `Install-Signora.cmd`.
+
 ### Windows Manual Setup
 ```powershell
 # 1. Clone or download Signora
@@ -89,7 +106,15 @@ python scripts\fetch_models.py
 
 # 5. Verify
 .\signora.bat doctor
+
+# 6. Build and launch the native WinUI 3 app
+cd windows
+.\build.ps1
+.\dist\Signora\Signora.Windows.exe
 ```
+
+The native app is the primary Windows experience. The `signora.bat` launcher
+remains available as a terminal fallback.
 
 ---
 

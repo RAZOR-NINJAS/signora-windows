@@ -1,0 +1,103 @@
+<Page
+    x:Class="Signora.Windows.Pages.LivePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:canvas="using:Microsoft.Graphics.Canvas.UI.Xaml"
+    Background="Transparent">
+
+    <Grid Margin="28" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" ColumnSpacing="14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                <TextBlock Text="Live" Style="{StaticResource SignoraTitleStyle}" />
+                <ComboBox x:Name="ModeBox" Width="124" SelectionChanged="ModeBox_SelectionChanged"
+                          VerticalAlignment="Center">
+                    <ComboBoxItem Content="ISL" Tag="isl" />
+                    <ComboBoxItem Content="ASL" Tag="asl" />
+                    <ComboBoxItem Content="Body" Tag="body" />
+                </ComboBox>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <TextBlock Text="Confidence" VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <ProgressBar x:Name="ConfidenceBar" Width="140" Height="6"
+                             Minimum="0" Maximum="1" Value="0" VerticalAlignment="Center" />
+            </StackPanel>
+
+            <TextBlock x:Name="FpsText" Grid.Column="2" Text="0 fps" VerticalAlignment="Center"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+            <Button x:Name="StartStopButton" Grid.Column="3" Content="Start"
+                    Click="StartStopButton_Click" Style="{StaticResource AccentButtonStyle}"
+                    MinWidth="96" />
+        </Grid>
+
+        <Border Grid.Row="1" CornerRadius="18" Background="{StaticResource SignoraStageBrush}"
+                BorderBrush="#1E293B" BorderThickness="1">
+            <Grid>
+                <canvas:CanvasControl x:Name="VideoCanvas" Draw="VideoCanvas_Draw"
+                                      ClearColor="#0B0F19" />
+
+                <Border x:Name="WaitingPanel" Background="#99000000" Visibility="Collapsed">
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                        <ProgressRing IsActive="True" Width="36" Height="36" />
+                        <TextBlock x:Name="WaitingText" Text="Starting engine..."
+                                   HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="2" ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="300" />
+            </Grid.ColumnDefinitions>
+
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="14" Padding="18">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="Transcript" Style="{StaticResource SignoraCaptionStyle}" />
+                    <TextBlock x:Name="TranscriptText" FontSize="30" FontWeight="SemiBold"
+                               TextWrapping="Wrap" MinHeight="52" Text="" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Space" Click="Space_Click" />
+                        <Button Content="Backspace" Click="Backspace_Click" />
+                        <Button Content="Clear" Click="Clear_Click" />
+                        <Button Content="Speak" Click="Speak_Click"
+                                Style="{StaticResource AccentButtonStyle}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="14" Padding="18">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Current sign" Style="{StaticResource SignoraCaptionStyle}" />
+                    <TextBlock x:Name="SignText" FontSize="44" FontWeight="Bold" Text="—" />
+                    <TextBlock x:Name="DwellText" Text="Hold to confirm" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <ProgressBar x:Name="DwellBar" Height="4" Minimum="0" Maximum="1" Value="0" />
+                    <TextBlock x:Name="EngineStatusText" Text="Starting..."
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               FontSize="12" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</Page>

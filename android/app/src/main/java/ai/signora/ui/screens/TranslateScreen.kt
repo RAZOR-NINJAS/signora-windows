@@ -1,15 +1,9 @@
 package ai.signora.ui.screens
 
 import androidx.camera.view.PreviewView
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
@@ -19,8 +13,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
@@ -81,6 +75,7 @@ fun TranslateScreen(
     fps: Float,
     isDark: Boolean,
     autoCollapseEnabled: Boolean = true,
+    desktopMode: Boolean = false,
     latestFrameId: Long = 0L,
     assetStatus: AutoAssetManager.AssetStatus,
     nlpState: NlpState = NlpState(),
@@ -114,12 +109,12 @@ fun TranslateScreen(
     var isPinnedExpanded by remember { mutableStateOf(false) }
     var shouldCollapse by remember { mutableStateOf(false) }
 
-    LaunchedEffect(handLandmarks.isNotEmpty(), autoCollapseEnabled, isPinnedExpanded) {
+    LaunchedEffect(handLandmarks.isNotEmpty(), autoCollapseEnabled, isPinnedExpanded, debounceState.transcript.isNotBlank()) {
         if (!autoCollapseEnabled || isPinnedExpanded) {
             shouldCollapse = false
             return@LaunchedEffect
         }
-        if (handLandmarks.isNotEmpty()) {
+        if (handLandmarks.isNotEmpty() || debounceState.transcript.isNotBlank()) {
             delay(150L) // 150ms enter hysteresis
             shouldCollapse = true
         } else {
@@ -128,7 +123,7 @@ fun TranslateScreen(
         }
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(PureBlack)
@@ -169,7 +164,6 @@ fun TranslateScreen(
         val activeSegments = remember(handLandmarks, poseLandmarks) {
             BodySegmentation.detectActiveSegments(handLandmarks, poseLandmarks)
         }
-        val activeSegment = activeSegments.firstOrNull()
 
         // Active anatomical anchor zone computation across detected hands
         val (activeAnchorZone, activeAnchorPt) = remember(handLandmarks, poseLandmarks, activeSegments) {
@@ -215,8 +209,8 @@ fun TranslateScreen(
                 Offset(p.x * scaledW + offsetX, p.y * scaledH + offsetY)
             }
 
-            // 1. Draw Upper Body Skeleton (Head, Neck, Shoulders, Arms, Spine, Waist)
-            if (poseLandmarks != null && poseLandmarks.points.size >= 25) {
+            // 1. Draw Upper Body Skeleton (debug-only; normal DeskStage stays hands-only)
+            if (isDebugOpen && currentMode == RecognitionMode.ISL && poseLandmarks != null && poseLandmarks.points.size >= 25) {
                 val pts = poseLandmarks.points
                 val boneColor = Color(0xFF818CF8).copy(alpha = 0.55f) // Electric Indigo
                 val spineColor = Color(0xFF6366F1).copy(alpha = 0.45f)
@@ -297,18 +291,6 @@ fun TranslateScreen(
                             top + 22f,
                             segmentTextPaint
                         )
-                    } else {
-                        // Subtle unobtrusive boundary showing mapped zones
-                        drawRoundRect(
-                            color = Color(0xFF818CF8).copy(alpha = 0.22f),
-                            topLeft = Offset(left, top),
-                            size = Size(w, h),
-                            cornerRadius = CornerRadius(14f, 14f),
-                            style = Stroke(
-                                width = 1.2f,
-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f), 0f)
-                            )
-                        )
                     }
                 }
             }
@@ -333,7 +315,7 @@ fun TranslateScreen(
                         color = boneColor,
                         start = p1,
                         end = p2,
-                        strokeWidth = 3.5f,
+                        strokeWidth = 3.0f,
                         cap = StrokeCap.Round
                     )
                 }
@@ -344,12 +326,12 @@ fun TranslateScreen(
 
                     drawCircle(
                         color = jointColor,
-                        radius = 4.5f,
+                        radius = 3.6f,
                         center = center
                     )
                     drawCircle(
                         color = Color.White,
-                        radius = 1.8f,
+                        radius = 1.5f,
                         center = center
                     )
                 }
@@ -361,13 +343,19 @@ fun TranslateScreen(
             }
         }
 
-        // 3. Top Cluster (Slim merged row: AppTopBar + ModeSelector + FloatingCameraToolbar)
+        // 3. Top Cluster (slim title + mode switch + camera controls)
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Black.copy(alpha = 0.58f), Color.Transparent)
+                    )
+                )
                 .statusBarsPadding()
-                .padding(horizontal = AppTheme.spacing.medium, vertical = AppTheme.spacing.small),
+                .padding(horizontal = AppTheme.spacing.medium, vertical = AppTheme.spacing.small)
+                .padding(end = if (desktopMode) 64.dp else 0.dp),
             verticalArrangement = Arrangement.spacedBy(AppTheme.spacing.small)
         ) {
             Row(
@@ -375,14 +363,42 @@ fun TranslateScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                AppTopBar(
-                    title = "Signora",
-                    fps = fps,
-                    isDebugOpen = isDebugOpen,
-                    isDark = isDark,
-                    onToggleDebug = { isDebugOpen = !isDebugOpen },
-                    onToggleTheme = onToggleTheme
-                )
+                if (desktopMode) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Column {
+                            Text(
+                                text = "Signora",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
+                                color = Color.White,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "${currentMode.displayName} · ${if (currentMode == RecognitionMode.ASL) "letters" else "words"} · ${fps.toInt()} FPS",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.65f),
+                                maxLines = 1
+                            )
+                        }
+                        ModeSelector(
+                            currentMode = currentMode,
+                            onModeSelected = onModeChange,
+                            modifier = Modifier.widthIn(max = 190.dp)
+                        )
+                    }
+                } else {
+                    AppTopBar(
+                        title = "Signora",
+                        fps = fps,
+                        isDebugOpen = isDebugOpen,
+                        isDark = isDark,
+                        onToggleDebug = { isDebugOpen = !isDebugOpen },
+                        onToggleTheme = onToggleTheme
+                    )
+                }
 
                 FloatingCameraToolbar(
                     isFrontCamera = isFrontCamera,
@@ -396,134 +412,12 @@ fun TranslateScreen(
                 )
             }
 
-            // Mode Selector on translucent scrim
-            ModeSelector(
-                currentMode = currentMode,
-                onModeSelected = onModeChange,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            // Prominent Real-time Candidate Floating Badge
-            AnimatedVisibility(
-                visible = debounceState.candidate.isNotBlank(),
-                enter = fadeIn(),
-                exit = fadeOut(),
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    shadowElevation = 6.dp
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = ai.signora.engine.DebounceEngine.formatDisplayText(debounceState.candidate),
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black)
-                        )
-                        if (activeAnchorZone != "OPEN_SPACE") {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color(0xFF10B981).copy(alpha = 0.25f)
-                            ) {
-                                Text(
-                                    text = "⚓ $activeAnchorZone",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF10B981)
-                                    ),
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-                        Text(
-                            text = "${(debounceState.confidence * 100).toInt()}%",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                        CircularProgressIndicator(
-                            progress = { debounceState.dwellProgress },
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.5.dp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            }
-
-            // Real-time Anatomical Body Map Active Anchor Pill
-            AnimatedVisibility(
-                visible = activeAnchorZone != "OPEN_SPACE",
-                enter = fadeIn(),
-                exit = fadeOut(),
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFF0F172A).copy(alpha = 0.88f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.7f)),
-                    shadowElevation = 4.dp
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .background(Color(0xFF10B981), CircleShape)
-                        )
-                        Text(
-                            text = "BODY MAP: $activeAnchorZone",
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFE2E8F0)
-                            )
-                        )
-                    }
-                }
-            }
-        }
-
-        // 4. Live Gloss Token Chips (ISL Mode only) — sleek compact pill
-        if (currentMode == RecognitionMode.ISL && nlpState.pendingGlosses.isNotEmpty()) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.90f),
-                shadowElevation = 4.dp,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = bottomBarPadding + 195.dp)
-                    .padding(horizontal = AppTheme.spacing.medium)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "GLOSS:",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    nlpState.pendingGlosses.takeLast(4).forEach { gloss ->
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                        ) {
-                            Text(
-                                text = ai.signora.engine.DebounceEngine.formatDisplayText(gloss),
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-                }
+            if (!desktopMode) {
+                ModeSelector(
+                    currentMode = currentMode,
+                    onModeSelected = onModeChange,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
 
@@ -540,26 +434,54 @@ fun TranslateScreen(
             )
         }
 
-        // 6. Responsive Bottom Deck with Live Translation
-        HandAwareBottomBar(
-            shouldCollapse = shouldCollapse,
-            debounceState = debounceState,
-            onPinExpanded = {
-                coroutineScope.launch {
-                    isPinnedExpanded = true
-                    delay(5000L)
-                    isPinnedExpanded = false
-                }
-            },
-            onSpace = onSpace,
-            onDelete = onBackspace,
-            onClear = onClear,
-            onSpeak = onSpeak,
-            synthesizedSentence = nlpState.synthesizedSentence,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = bottomBarPadding)
-        )
+        // 6. Bottom deck: phone uses the hand-aware sheet; DeskStage uses a
+        // wide strip that collapses to the same floating pill while signing.
+        if (!desktopMode) {
+            HandAwareBottomBar(
+                shouldCollapse = shouldCollapse,
+                debounceState = debounceState,
+                onPinExpanded = {
+                    coroutineScope.launch {
+                        isPinnedExpanded = true
+                        delay(5000L)
+                        isPinnedExpanded = false
+                    }
+                },
+                onSpace = onSpace,
+                onDelete = onBackspace,
+                onClear = onClear,
+                onSpeak = onSpeak,
+                synthesizedSentence = nlpState.synthesizedSentence,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = bottomBarPadding)
+            )
+        } else {
+            DesktopCommandBar(
+                shouldCollapse = shouldCollapse,
+                debounceState = debounceState,
+                nlpState = nlpState,
+                currentMode = currentMode,
+                activeAnchorZone = activeAnchorZone,
+                onPinExpanded = {
+                    coroutineScope.launch {
+                        isPinnedExpanded = true
+                        delay(5000L)
+                        isPinnedExpanded = false
+                    }
+                },
+                onSpace = onSpace,
+                onBackspace = onBackspace,
+                onClear = onClear,
+                onSpeak = onSpeak,
+                onOpenSpeechToSign = { isSpeechToSignOpen = true },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 24.dp, vertical = 20.dp)
+                    .widthIn(max = 760.dp)
+                    .fillMaxWidth()
+            )
+        }
 
         // 7. Camera Permission Required Screen
         if (!hasCameraPermission) {

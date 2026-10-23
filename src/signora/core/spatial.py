@@ -16,6 +16,7 @@ import numpy as np
 
 from signora.core.camera import Camera
 from signora.core.hands import HAND_CONNECTIONS, HandPipeline, LandmarkPoint
+from signora.platform_compat import get_quality_profile
 
 # Core Upper-Body Skeleton Connections (MediaPipe Pose 11-16)
 UPPER_BODY_CONNECTIONS: List[Tuple[int, int]] = [
@@ -48,6 +49,11 @@ class SpatialPipeline:
 
         self._stop = threading.Event()
 
+        quality = get_quality_profile()
+        self._high_quality = quality == "high"
+        self._pose_width = 480 if self._high_quality else 320
+        self._pose_interval = 0.06 if self._high_quality else 0.15
+
         # Underlying hand pipeline with auto GPU/CPU acceleration
         self._hand_pipe = HandPipeline(
             source=source,
@@ -57,6 +63,7 @@ class SpatialPipeline:
             use_fake=use_fake,
             width=self.width,
             height=self.height,
+            inference_width=960 if self._high_quality else 640,
         )
 
         self._last_pose_landmarks: Optional[List[LandmarkPoint]] = None
@@ -69,15 +76,16 @@ class SpatialPipeline:
 
         self._pose_filter = OneEuroFilter3D(n_points=33, min_cutoff=0.75, beta=0.006)
 
-        # Initialize MediaPipe Pose with BlazePose Lite (complexity 0) for sub-20ms tracking
+        # High-quality profile uses BlazePose Full (complexity 1) at 480px and
+        # ~16 Hz. Balanced falls back to Lite at 320px for older machines.
         if not self.use_fake:
             try:
                 self._pose = mp.solutions.pose.Pose(
                     static_image_mode=False,
-                    model_complexity=0,
+                    model_complexity=1 if self._high_quality else 0,
                     smooth_landmarks=True,
-                    min_detection_confidence=0.4,
-                    min_tracking_confidence=0.4,
+                    min_detection_confidence=0.5 if self._high_quality else 0.4,
+                    min_tracking_confidence=0.5 if self._high_quality else 0.4,
                 )
                 self._pose_thread = threading.Thread(target=self._pose_worker_loop, daemon=True)
                 self._pose_thread.start()
@@ -103,8 +111,7 @@ class SpatialPipeline:
     def _pose_worker_loop(self) -> None:
         """Asynchronous pose inference worker that decouples body tracking from video capture."""
         last_pose_time = 0.0
-        # Optimal 6-7 Hz inference rate balance for upper body pose tracking with low CPU usage
-        pose_interval = 0.15
+        pose_interval = self._pose_interval
 
         while not self._stop.is_set():
             now = time.monotonic()
@@ -126,9 +133,9 @@ class SpatialPipeline:
             try:
                 # Downsample maintaining aspect ratio for accurate pose estimation
                 h_orig, w_orig = frame_to_process.shape[:2]
-                target_w = 320
+                target_w = self._pose_width
                 target_h = max(160, int(h_orig * (target_w / max(1, w_orig))))
-                small = cv2.resize(frame_to_process, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+                small = cv2.resize(frame_to_process, (target_w, target_h), interpolation=cv2.INTER_AREA)
                 rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
                 res = self._pose.process(rgb)
                 if res and res.pose_landmarks:

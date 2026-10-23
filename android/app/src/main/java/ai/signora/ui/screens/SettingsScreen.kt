@@ -1,6 +1,7 @@
 package ai.signora.ui.screens
 
 import android.os.Build
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ai.signora.models.DwellProfile
+import ai.signora.ui.DeskStageMode
 import ai.signora.ui.components.SectionHeader
 import ai.signora.ui.components.SettingsItem
 import ai.signora.ui.theme.AppTheme
@@ -43,6 +45,9 @@ fun SettingsScreen(
     isMuted: Boolean,
     isFrontCamera: Boolean,
     autoCollapseEnabled: Boolean = true,
+    desktopMode: Boolean = false,
+    bottomBarPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    onDesktopModeChange: (Boolean) -> Unit = {},
     onThemeModeChange: (AppThemeMode) -> Unit,
     onPaletteChange: (AppPalette) -> Unit = {},
     onDynamicColorChange: (Boolean) -> Unit,
@@ -58,15 +63,26 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val detectedWallpaperColor = remember(context) { extractWallpaperPrimaryColor(context) }
+    var deskStageUnlocked by remember { mutableStateOf(DeskStageMode.isUnlocked(context)) }
+    var unlockTaps by remember { mutableStateOf(0) }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = AppTheme.spacing.medium)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(AppTheme.spacing.medium)
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .then(if (desktopMode) Modifier.widthIn(max = 980.dp) else Modifier)
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(
+                    horizontal = if (desktopMode) AppTheme.spacing.large else AppTheme.spacing.medium
+                )
+                .padding(bottom = bottomBarPadding)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(AppTheme.spacing.medium)
+        ) {
         // Top Header
         Row(
             modifier = Modifier
@@ -631,6 +647,141 @@ fun SettingsScreen(
             }
         }
 
+
+        // Section: DeskStage (hidden until unlocked)
+        if (deskStageUnlocked) {
+            SectionHeader(title = "DeskStage")
+
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = if (desktopMode) {
+                    androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                } else {
+                    null
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(AppTheme.spacing.medium),
+                    verticalArrangement = Arrangement.spacedBy(AppTheme.spacing.small)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(AppTheme.spacing.small)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Monitor,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .padding(8.dp)
+                                        .size(20.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "DeskStage",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Widescreen workspace for screen mirroring",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = desktopMode,
+                            onCheckedChange = onDesktopModeChange
+                        )
+                    }
+
+                    Text(
+                        text = "Turns the app into a landscape desktop shell: persistent sidebar, two-pane Translate view, keyboard shortcuts, and immersive system bars. ISL Studio keeps its normal layout.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    if (desktopMode) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .background(AppTheme.semantic.success, CircleShape)
+                            )
+                            Text(
+                                text = "Active — exit from the sidebar or switch this off",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = AppTheme.semantic.success
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    Text(
+                        text = "Shortcuts · Ctrl 1–5 switch views · Space, Backspace, Enter drive Translate",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        // Hidden unlock target: seven taps on the version footer reveals DeskStage.
+        // Standard Android developer-options gesture, invisible until discovered.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    if (!deskStageUnlocked) {
+                        unlockTaps += 1
+                        when {
+                            unlockTaps >= 7 -> {
+                                DeskStageMode.unlock(context)
+                                deskStageUnlocked = true
+                                Toast.makeText(context, "DeskStage unlocked", Toast.LENGTH_SHORT).show()
+                            }
+                            unlockTaps >= 3 -> Toast.makeText(
+                                context,
+                                "${7 - unlockTaps} taps to unlock",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
+                .padding(vertical = AppTheme.spacing.small),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = "Signora 0.2.0 · Material 3 Expressive",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+            )
+            Text(
+                text = if (deskStageUnlocked) "DeskStage ready" else "Built for signing",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+            )
+        }
+
         Spacer(modifier = Modifier.height(AppTheme.spacing.large))
+        }
     }
 }

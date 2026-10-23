@@ -80,6 +80,7 @@ class HandPipeline:
         use_fake: bool = False,
         width: int = 1280,
         height: int = 720,
+        inference_width: int = 640,
     ):
         self.source = source
         self.num_hands = max(1, int(num_hands))
@@ -88,6 +89,7 @@ class HandPipeline:
         self.use_fake = use_fake
         self.width = width
         self.height = height
+        self.inference_width = max(320, int(inference_width))
 
         self._frames: "queue.Queue" = queue.Queue(maxsize=2)
         self._stop = threading.Event()
@@ -221,8 +223,13 @@ class HandPipeline:
                 if self._skip_counter >= self.detect_every:
                     self._skip_counter = 0
                     h_cur, w_cur = frame.shape[:2]
-                    if w_cur > 640:
-                        small = cv2.resize(frame, (640, 360), interpolation=cv2.INTER_LINEAR)
+                    if w_cur > self.inference_width:
+                        scale = self.inference_width / float(w_cur)
+                        target_w = self.inference_width
+                        target_h = max(2, int(round(h_cur * scale)))
+                        small = cv2.resize(
+                            frame, (target_w, target_h), interpolation=cv2.INTER_AREA
+                        )
                         rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
                     else:
                         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

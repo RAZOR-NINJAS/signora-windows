@@ -50,8 +50,14 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate (default: 0.001)")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size (default: 32)")
     parser.add_argument("--no-export", action="store_true", help="Skip exporting model to Android assets")
+    parser.add_argument(
+        "--exclude",
+        default="",
+        help="Comma-separated labels to drop even if present in the baseline checkpoint (e.g. SUII_MOTION)",
+    )
     args = parser.parse_args()
 
+    exclude_labels = [s.strip() for s in args.exclude.split(",") if s.strip()]
     in_dim = 220 if (args.spatial or args.dim == 220) else (args.dim or None)
     if args.data_dir is not None:
         data_dir = args.data_dir
@@ -65,6 +71,7 @@ def main():
         batch_size=args.batch_size,
         in_dim=in_dim,
         export_mobile=not args.no_export,
+        exclude_labels=exclude_labels,
     )
     return 0 if res.get("success") else 1
 

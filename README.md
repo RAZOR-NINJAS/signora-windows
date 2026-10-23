@@ -43,11 +43,27 @@
 curl -fsSL https://raw.githubusercontent.com/RAZOR-NINJAS/signora/main/install.sh | bash
 ```
 
-### Windows 10 & 11 (Non-Admin Barebones Laptop)
-Open standard **Windows PowerShell** (no administrator rights needed) and run:
+### Windows 10 & 11 (Native WinUI 3 App, Non-Admin)
+Double-click **`Pixel-Install.cmd`** for the animated, game-style installer, or
+**`Setup-Windows.cmd`** for the plain one. Both do the same one-shot setup,
+build, and launch. They provision everything the laptop is missing: Python 3.11,
+OpenCV, MediaPipe, PyTorch CPU, model weights, a user-local .NET 8 SDK, and the
+self-contained WinUI 3 app. No preinstalled Python, OpenCV, or Visual Studio is
+required.
+
+The pixel installer can also be started from PowerShell:
 ```powershell
-irm https://raw.githubusercontent.com/RAZOR-NINJAS/signora/main/install.ps1 | iex
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-windows.ps1 -Pixel
 ```
+
+For the guided installer with prompts, use **`Install-Signora.cmd`**, or run:
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+The desktop shortcut launches `Signora.Windows.exe`, not the TUI. See
+[windows/README.md](windows/README.md) for the native app architecture and
+developer build.
 
 ---
 

@@ -34,19 +34,6 @@ object FeatureExtractor {
 
     private val FINGERTIPS = intArrayOf(THUMB_TIP, INDEX_TIP, MIDDLE_TIP, RING_TIP, PINKY_TIP)
 
-    val DEFAULT_SPATIAL_MEANS = floatArrayOf(
-        -0.350870f, 0.799463f, 2.122782f, -0.350870f, 0.588879f, 2.051582f,
-        -0.354260f, 0.511963f, 1.742196f, -0.354260f, 0.397098f, 1.711337f,
-        -0.362729f, 0.231570f, 0.747201f, -0.825376f, 0.228161f, 1.061882f,
-        0.099923f, 0.234982f, 0.653235f, -0.943587f, -0.521120f, 1.999624f,
-        -0.339983f, -0.682873f, 0.779467f, 0.439348f, 0.062156f, 0.331111f,
-        0.726258f, 0.062156f, 0.253487f, 0.693702f, 0.061793f, 0.225335f,
-        0.583436f, 0.061793f, 0.182996f, 0.568106f, 0.058430f, 0.119391f,
-        0.222405f, -0.112170f, 0.119574f, 0.261301f, 0.229029f, 0.119208f,
-        0.305290f, -0.005683f, -0.001393f, 0.803014f, 0.062573f, -0.224628f,
-        0.244354f, 0.174898f
-    )
-
     fun resolveHands(hands: List<HandLandmarks>): Pair<HandLandmarks?, HandLandmarks?> {
         var leftHand: HandLandmarks? = null
         var rightHand: HandLandmarks? = null
@@ -172,57 +159,78 @@ object FeatureExtractor {
 
         // Canonical hand assignment: [leftSlot, rightSlot]
         val (leftHand, rightHand) = resolveHands(hands)
+        val leftNorm = leftHand?.takeIf { it.points.size >= 21 }?.let { normalizeHand(it.points) }
+        val rightNorm = rightHand?.takeIf { it.points.size >= 21 }?.let { normalizeHand(it.points) }
 
         // 1. Left hand features in slot 0..73
-        if (leftHand != null && leftHand.points.size >= 21) {
-            val fLeft = extractSingleHandFeatures(leftHand.points, normalizeNormal = true)
-            System.arraycopy(fLeft, 0, out, 0, 74)
+        if (leftNorm != null) {
+            System.arraycopy(buildSingleHandFeatures(leftNorm.first, normalizeNormal = true), 0, out, 0, 74)
             out[162] = 1.0f
         }
 
         // 2. Right hand features in slot 74..147
-        if (rightHand != null && rightHand.points.size >= 21) {
-            val fRight = extractSingleHandFeatures(rightHand.points, normalizeNormal = true)
-            System.arraycopy(fRight, 0, out, 74, 74)
+        if (rightNorm != null) {
+            System.arraycopy(buildSingleHandFeatures(rightNorm.first, normalizeNormal = true), 0, out, 74, 74)
             out[163] = 1.0f
         }
 
-        // 3. Inter-hand spatial geometry (14D) at offset 148..161
-        if (leftHand != null && rightHand != null && leftHand.points.size >= 21 && rightHand.points.size >= 21) {
+        // 3. Inter-hand geometry (14D) at offset 148..161.
+        // This layout is defined by src/signora/isl/features.py: right hand is
+        // dominant, left hand is the base, and every distance is divided by the
+        // mean palm scale of the pair. Keeping it byte-for-byte identical to the
+        // training extractor is what stops the model from guessing wrong signs.
+        if (leftNorm != null && rightNorm != null) {
+            val l = leftNorm.first
+            val r = rightNorm.first
+            val avgScale = maxOf(0.5f * (leftNorm.second + rightNorm.second), 1e-4f)
             var offset = 148
-            val pL = leftHand.points
-            val pR = rightHand.points
-            // Wrist distance
-            out[offset++] = dist3D(pL[WRIST], pR[WRIST])
-            // Fingertip cross-distances
+
+            // Wrist offset (right - left), normalized by mean palm scale.
+            out[offset++] = (r[WRIST][0] - l[WRIST][0]) / avgScale
+            out[offset++] = (r[WRIST][1] - l[WRIST][1]) / avgScale
+            out[offset++] = (r[WRIST][2] - l[WRIST][2]) / avgScale
+            out[offset++] = dist3D(r[WRIST], l[WRIST]) / avgScale
+
+            // Dominant (right) index tip to each base (left) fingertip.
             for (tip in FINGERTIPS) {
-                out[offset++] = dist3D(pL[tip], pR[tip])
+                out[offset++] = dist3D(r[INDEX_TIP], l[tip]) / avgScale
             }
-            // Index to thumb cross-distances
-            out[offset++] = dist3D(pL[INDEX_TIP], pR[THUMB_TIP])
-            out[offset++] = dist3D(pL[THUMB_TIP], pR[INDEX_TIP])
-            // Relative wrist delta (R - L)
-            out[offset++] = pR[WRIST].x - pL[WRIST].x
-            out[offset++] = pR[WRIST].y - pL[WRIST].y
-            out[offset++] = pR[WRIST].z - pL[WRIST].z
-            // Relative index delta (R - L)
-            out[offset++] = pR[INDEX_TIP].x - pL[INDEX_TIP].x
-            out[offset++] = pR[INDEX_TIP].y - pL[INDEX_TIP].y
-            out[offset++] = pR[INDEX_TIP].z - pL[INDEX_TIP].z
+            out[offset++] = dist3D(r[INDEX_TIP], l[WRIST]) / avgScale
+            out[offset++] = dist3D(r[THUMB_TIP], l[INDEX_TIP]) / avgScale
+
+            // Closest fingertip pair.
+            var minTipDist = Float.MAX_VALUE
+            for (rTip in FINGERTIPS) {
+                for (lTip in FINGERTIPS) {
+                    val d = dist3D(r[rTip], l[lTip])
+                    if (d < minTipDist) minTipDist = d
+                }
+            }
+            out[offset++] = minTipDist / avgScale
+
+            // Palm-normal agreement.
+            val ln = unitNormal(l)
+            val rn = unitNormal(r)
+            out[offset++] = ln[0] * rn[0] + ln[1] * rn[1] + ln[2] * rn[2]
+
+            // Relative wrist height.
+            out[offset++] = (r[WRIST][1] - l[WRIST][1]) / avgScale
         }
 
         return out
     }
 
-    private fun extractSingleHandFeatures(rawPoints: List<Point3D>, normalizeNormal: Boolean): FloatArray {
-        if (rawPoints.size < 21) return FloatArray(74)
+    private fun normalizeHand(rawPoints: List<Point3D>): Pair<Array<FloatArray>, Float> {
+        if (rawPoints.size < 21) {
+            return Pair(Array(21) { FloatArray(3) }, 1f)
+        }
 
         val pts = Array(21) { i ->
             val p = rawPoints[i]
             floatArrayOf(p.x, p.y, p.z)
         }
 
-        // Translate wrist to origin
+        // Translate wrist to origin.
         val wX = pts[WRIST][0]
         val wY = pts[WRIST][1]
         val wZ = pts[WRIST][2]
@@ -232,7 +240,7 @@ object FeatureExtractor {
             pts[i][2] -= wZ
         }
 
-        // Scale by palm size: dist(wrist, middle_mcp)
+        // Scale by palm size: dist(wrist, middle_mcp).
         val palmDist = dist3D(pts[WRIST], pts[MIDDLE_MCP])
         val scale = if (palmDist < 1e-6f) 1.0f else palmDist
         for (i in 0 until 21) {
@@ -241,6 +249,10 @@ object FeatureExtractor {
             pts[i][2] /= scale
         }
 
+        return Pair(pts, scale)
+    }
+
+    private fun buildSingleHandFeatures(pts: Array<FloatArray>, normalizeNormal: Boolean): FloatArray {
         val palm = dist3D(pts[WRIST], pts[MIDDLE_MCP]).let { if (it < 1e-6f) 1f else it }
 
         val feats = FloatArray(74)
@@ -281,40 +293,37 @@ object FeatureExtractor {
         feats[idx++] = depthSum / FINGERTIPS.size
 
         // 3 palm normal vector
-        val v1 = floatArrayOf(pts[INDEX_MCP][0] - pts[WRIST][0], pts[INDEX_MCP][1] - pts[WRIST][1], pts[INDEX_MCP][2] - pts[WRIST][2])
-        val v2 = floatArrayOf(pts[PINKY_MCP][0] - pts[WRIST][0], pts[PINKY_MCP][1] - pts[WRIST][1], pts[PINKY_MCP][2] - pts[WRIST][2])
-        val normal = crossProduct(v1, v2)
-        if (normalizeNormal) {
-            val normLen = sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2])
-            val s = if (normLen > 1e-6f) normLen else 1f
-            feats[idx++] = normal[0] / s
-            feats[idx++] = normal[1] / s
-            feats[idx++] = normal[2] / s
-        } else {
-            feats[idx++] = normal[0]
-            feats[idx++] = normal[1]
-            feats[idx++] = normal[2]
-        }
+        val normal = unitNormal(pts, normalize = normalizeNormal)
+        feats[idx++] = normal[0]
+        feats[idx++] = normal[1]
+        feats[idx++] = normal[2]
 
         return feats
     }
 
+    private fun unitNormal(pts: Array<FloatArray>, normalize: Boolean = true): FloatArray {
+        val v1 = floatArrayOf(pts[INDEX_MCP][0] - pts[WRIST][0], pts[INDEX_MCP][1] - pts[WRIST][1], pts[INDEX_MCP][2] - pts[WRIST][2])
+        val v2 = floatArrayOf(pts[PINKY_MCP][0] - pts[WRIST][0], pts[PINKY_MCP][1] - pts[WRIST][1], pts[PINKY_MCP][2] - pts[WRIST][2])
+        val normal = crossProduct(v1, v2)
+        if (!normalize) return normal
+        val normLen = sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2])
+        val s = if (normLen > 1e-6f) normLen else 1f
+        return floatArrayOf(normal[0] / s, normal[1] / s, normal[2] / s)
+    }
+
     fun extractSpatialFeatures(
         hands: List<HandLandmarks>,
-        pose: ai.signora.models.PoseLandmarks?,
-        datasetMean: FloatArray? = null
+        pose: ai.signora.models.PoseLandmarks?
     ): FloatArray {
         val baseFeats = extractIslFeatures(hands)
         val out = FloatArray(220)
         System.arraycopy(baseFeats, 0, out, 0, 164)
 
+        // The training extractor leaves body features at zero when pose is
+        // unavailable. Standardization turns those zeros into a strong
+        // "missing body" signal, so they must not be replaced with the dataset
+        // mean here.
         if (pose == null || pose.points.size < 25) {
-            // Impute anatomical body features with dataset mean to yield exactly 0.0 in z-score normalization
-            if (datasetMean != null && datasetMean.size >= 220) {
-                System.arraycopy(datasetMean, 164, out, 164, 56)
-            } else {
-                System.arraycopy(DEFAULT_SPATIAL_MEANS, 0, out, 164, 56)
-            }
             return out
         }
 
@@ -375,13 +384,7 @@ object FeatureExtractor {
                 val dfMouth = sqrt(dfMx * dfMx + dfMy * dfMy)
                 out[offset++] = dfMouth
             } else {
-                // Impute unobserved hand anchors with dataset mean instead of raw zero
-                val sourceOffset = 164 + hIdx * 28
-                if (datasetMean != null && datasetMean.size >= 220) {
-                    System.arraycopy(datasetMean, sourceOffset, out, offset, 28)
-                } else {
-                    System.arraycopy(DEFAULT_SPATIAL_MEANS, hIdx * 28, out, offset, 28)
-                }
+                // Training encodes an absent hand as 28 zeros.
                 offset += 28
             }
         }

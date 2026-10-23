@@ -6,6 +6,7 @@ or video tools over localhost without requiring root privileges or v4l2loopback.
 
 import http.server
 import json
+import queue
 import socketserver
 import threading
 import time
@@ -21,6 +22,7 @@ class StreamingOutput:
     def __init__(self) -> None:
         self.frame: Optional[bytes] = None
         self.condition = threading.Condition()
+        self.commands: "queue.Queue[Dict[str, Any]]" = queue.Queue()
         self.status: Dict[str, Any] = {
             "active_sign": "",
             "dwell": 0.0,
@@ -40,6 +42,17 @@ class StreamingOutput:
     def update_status(self, **kwargs: Any) -> None:
         with self.condition:
             self.status.update(kwargs)
+
+    def push_command(self, command: Dict[str, Any]) -> None:
+        """Queue a control command from the native UI."""
+        self.commands.put(command)
+
+    def pop_command(self, timeout: float = 0.0) -> Optional[Dict[str, Any]]:
+        """Pop the next control command, or None when the queue is empty."""
+        try:
+            return self.commands.get(timeout=timeout)
+        except queue.Empty:
+            return None
 
 
 class StreamingHandler(http.server.BaseHTTPRequestHandler):
@@ -188,6 +201,12 @@ class StreamingHandler(http.server.BaseHTTPRequestHandler):
             except (ConnectionResetError, BrokenPipeError):
                 pass
 
+        elif self.path == "/api/health":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"ok": true}')
+
         elif self.path == "/api/status":
             if self.output is None:
                 self.send_error(503, "Status not available")
@@ -202,6 +221,30 @@ class StreamingHandler(http.server.BaseHTTPRequestHandler):
 
         else:
             self.send_error(404, "Not Found")
+
+    def do_POST(self) -> None:
+        if self.path != "/api/command":
+            self.send_error(404, "Not Found")
+            return
+        if self.output is None:
+            self.send_error(503, "Command channel not available")
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length) if length > 0 else b"{}"
+            command = json.loads(body.decode("utf-8"))
+            if not isinstance(command, dict):
+                raise ValueError("command must be a JSON object")
+        except Exception as exc:
+            self.send_error(400, f"Invalid command: {exc}")
+            return
+
+        self.output.push_command(command)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"ok": true}')
 
 
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):

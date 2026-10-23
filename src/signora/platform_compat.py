@@ -35,6 +35,19 @@ def is_macos() -> bool:
     return sys.platform == "darwin"
 
 
+def get_quality_profile() -> str:
+    """Return the inference quality profile.
+
+    Windows desktops default to the high-accuracy profile now that modern
+    laptops can run the full pose model and 960px hand inference comfortably.
+    Override with SIGNORA_QUALITY=balanced|high|low.
+    """
+    override = os.environ.get("SIGNORA_QUALITY", "").strip().lower()
+    if override in ("high", "balanced", "low"):
+        return override
+    return "high" if is_windows() else "balanced"
+
+
 def get_platform_info() -> Dict[str, str]:
     """Return platform metadata dictionary."""
     backend = "DirectShow" if is_windows() else ("V4L2" if is_linux() else "Default")

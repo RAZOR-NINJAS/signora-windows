@@ -9,7 +9,7 @@ import json
 import shutil
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -39,13 +39,18 @@ def synthesize_baseline_samples(
     std: torch.Tensor,
     in_dim: int = 164,
     samples_per_class: int = 120,
+    exclude: Optional[Iterable[str]] = None,
 ) -> Dict[str, np.ndarray]:
     """Synthesize high-confidence exemplar features from existing checkpoint to prevent catastrophic forgetting."""
-    print("⚡ Preserving baseline knowledge for existing classes:", labels)
+    excluded = {label.upper() for label in (exclude or [])}
+    kept = [label for label in labels if label.upper() not in excluded]
+    print("⚡ Preserving baseline knowledge for existing classes:", kept)
     model.eval()
     exemplars: Dict[str, np.ndarray] = {}
 
     for idx, label in enumerate(labels):
+        if label.upper() in excluded:
+            continue
         x_norm = nn.Parameter(torch.randn(samples_per_class, in_dim) * 0.15)
         optimizer = torch.optim.Adam([x_norm], lr=0.08)
 
@@ -68,12 +73,14 @@ def load_dataset(
     baseline_ckpt_path: Path,
     expected_dim: Optional[int] = None,
     fresh: bool = False,
+    exclude_labels: Optional[Iterable[str]] = None,
 ) -> Tuple[np.ndarray, np.ndarray, List[str], int]:
     """Assemble complete training dataset combining existing and newly recorded classes."""
     dataset_dict: Dict[str, np.ndarray] = {}
+    excluded = {label.upper() for label in (exclude_labels or [])}
 
     # Inspect newly recorded user samples to detect dimensionality if not specified
-    new_files = list(data_dir.glob("*.npy")) if data_dir.exists() else []
+    new_files = [p for p in data_dir.glob("*.npy") if p.stem.upper() not in excluded] if data_dir.exists() else []
 
     target_in_dim = expected_dim
     if target_in_dim is None:
@@ -98,7 +105,8 @@ def load_dataset(
             base_std = torch.tensor(ckpt["std"], dtype=torch.float32)
 
             baseline_data = synthesize_baseline_samples(
-                base_model, base_labels, base_mean, base_std, in_dim=target_in_dim
+                base_model, base_labels, base_mean, base_std, in_dim=target_in_dim,
+                exclude=excluded,
             )
             dataset_dict.update(baseline_data)
         else:
@@ -164,6 +172,7 @@ def train_isl_model(
     in_dim: Optional[int] = None,
     fresh: bool = False,
     export_mobile: bool = False,
+    exclude_labels: Optional[Iterable[str]] = None,
 ) -> Dict[str, Any]:
     """Train or fine-tune the ISL MLP model on data_dir and update model checkpoint."""
     print("=" * 65)
@@ -182,7 +191,9 @@ def train_isl_model(
             if not ckpt_path.exists():
                 ckpt_path = MODELS_DIR / "isl_mlp.pt"
 
-    X, y, labels, actual_dim = load_dataset(data_dir, ckpt_path, expected_dim=in_dim, fresh=fresh)
+    X, y, labels, actual_dim = load_dataset(
+        data_dir, ckpt_path, expected_dim=in_dim, fresh=fresh, exclude_labels=exclude_labels
+    )
     if actual_dim == 220 and ckpt_path.name == "isl_mlp.pt":
         ckpt_path = MODELS_DIR / "isl_spatial_mlp.pt"
 

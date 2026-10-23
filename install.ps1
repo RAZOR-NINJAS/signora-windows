@@ -10,6 +10,13 @@
 
 $ErrorActionPreference = "Stop"
 
+# Modern TLS for GitHub / NuGet / dot.net downloads on older Windows installs.
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+} catch {
+    # Older .NET Framework may already default to a usable protocol.
+}
+
 Clear-Host
 Write-Host ""
 Write-Host "  ███████╗██╗ ██████╗ ███╗   ██╗ ██████╗ ██████╗  █████╗ " -ForegroundColor Cyan
@@ -58,7 +65,7 @@ Set-Location $installDir
 # ==============================================================================
 # 2. Source Code Retrieval & Verification
 # ==============================================================================
-Write-Host "`n[Step 1/6] Verifying Signora source tree..." -ForegroundColor Cyan
+Write-Host "`n[Step 1/7] Verifying Signora source tree..." -ForegroundColor Cyan
 
 $repoUrl = "https://github.com/RAZOR-NINJAS/signora.git"
 $zipUrl = "https://github.com/RAZOR-NINJAS/signora/archive/refs/heads/main.zip"
@@ -84,7 +91,7 @@ Write-Host "  [OK] Source tree ready." -ForegroundColor Green
 # ==============================================================================
 # 3. Auto-Solve Missing Dependencies: Visual C++ Runtime
 # ==============================================================================
-Write-Host "`n[Step 2/6] Inspecting Windows system runtimes..." -ForegroundColor Cyan
+Write-Host "`n[Step 2/7] Inspecting Windows system runtimes..." -ForegroundColor Cyan
 $vcMissing = $false
 try {
     $vcKey = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\X64" -ErrorAction SilentlyContinue
@@ -114,7 +121,7 @@ if ($vcMissing) {
 # ==============================================================================
 # 4. Standalone Environment & Python Manager Provisioning (uv)
 # ==============================================================================
-Write-Host "`n[Step 3/6] Configuring standalone Python runtime..." -ForegroundColor Cyan
+Write-Host "`n[Step 3/7] Configuring standalone Python runtime..." -ForegroundColor Cyan
 
 $binDir = "$env:LOCALAPPDATA\bin"
 if (-not (Test-Path $binDir)) {
@@ -131,7 +138,10 @@ if (-not $uvCmd -and -not (Test-Path $uvExe)) {
     try {
         Invoke-WebRequest -Uri $uvUrl -OutFile $uvZip -UseBasicParsing
         Expand-Archive -Path $uvZip -DestinationPath "$env:TEMP\uv-extract" -Force
-        Move-Item -Path "$env:TEMP\uv-extract\uv.exe" -Destination $uvExe -Force
+        $uvFound = Get-ChildItem "$env:TEMP\uv-extract" -Recurse -Filter uv.exe | Select-Object -First 1
+        if ($uvFound) {
+            Move-Item -Path $uvFound.FullName -Destination $uvExe -Force
+        }
         Remove-Item -Path $uvZip -Force -ErrorAction SilentlyContinue
         Remove-Item -Path "$env:TEMP\uv-extract" -Recurse -Force -ErrorAction SilentlyContinue
     } catch {
@@ -165,16 +175,22 @@ if ($uvBin) {
         & $sysPy.Source -m venv $venvDir
     }
 }
+if (-not (Test-Path $venvPy)) {
+    Write-Host "[Error] Python environment was not created at $venvDir." -ForegroundColor Red
+    Write-Host "        Install Python 3.11 from python.org, then rerun this script." -ForegroundColor DarkGray
+    exit 1
+}
+
 Write-Host "  [OK] Python 3.11 environment initialized at $venvDir" -ForegroundColor Green
 
 # ==============================================================================
 # 5. Installing Dependencies & Package
 # ==============================================================================
-Write-Host "`n[Step 4/6] Installing neural dependencies (CPU-optimized PyTorch & Piper TTS)..." -ForegroundColor Cyan
+Write-Host "`n[Step 4/7] Installing neural dependencies (CPU-optimized PyTorch & Piper TTS)..." -ForegroundColor Cyan
 
 if ($uvBin) {
-    & $uvBin pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet
-    & $uvBin pip install -e . --quiet
+    & $uvBin pip install --python $venvPy torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet
+    & $uvBin pip install --python $venvPy -e . --quiet
 } else {
     & $venvPy -m pip install --upgrade pip --quiet
     & $venvPy -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet
@@ -185,14 +201,70 @@ Write-Host "  [OK] Packages installed successfully." -ForegroundColor Green
 # ==============================================================================
 # 6. Model Asset Fetching & Auto-Verification
 # ==============================================================================
-Write-Host "`n[Step 5/6] Verifying neural models and Piper voice assets..." -ForegroundColor Cyan
+Write-Host "`n[Step 5/7] Verifying neural models and Piper voice assets..." -ForegroundColor Cyan
 & $venvPy "$installDir\scripts\fetch_models.py" --target-dir "$installDir\models"
 Write-Host "  [OK] Neural weights verified." -ForegroundColor Green
 
 # ==============================================================================
-# 7. Create Launchers & Shortcuts
+# 7. Native Windows App (WinUI 3) — provisioned, not preinstalled
 # ==============================================================================
-Write-Host "`n[Step 6/6] Generating launchers and shortcuts..." -ForegroundColor Cyan
+Write-Host "`n[Step 6/7] Installing the native Windows app..." -ForegroundColor Cyan
+
+$dotnetDir = "$installDir\.dotnet"
+$dotnetExe = "$dotnetDir\dotnet.exe"
+$dotnetCmd = Get-Command dotnet -ErrorAction SilentlyContinue
+if (-not (Test-Path $dotnetExe) -and $dotnetCmd) {
+    $sdks = & $dotnetCmd.Source --list-sdks 2>$null
+    if ($sdks -match '(?m)^8\.') {
+        $dotnetExe = $dotnetCmd.Source
+    }
+}
+
+if (-not (Test-Path $dotnetExe)) {
+    Write-Host "  [+] Provisioning .NET 8 SDK (user-local, no admin)..." -ForegroundColor Gray
+    try {
+        $dotnetInstall = "$env:TEMP\dotnet-install.ps1"
+        Invoke-WebRequest -Uri "https://dot.net/v1/dotnet-install.ps1" -OutFile $dotnetInstall -UseBasicParsing
+        & $dotnetInstall -Channel 8.0 -InstallDir $dotnetDir
+        if (Test-Path $dotnetExe) {
+            $env:PATH = "$dotnetDir;$env:PATH"
+        }
+    } catch {
+        Write-Host "  [!] Could not provision .NET automatically: $_" -ForegroundColor DarkYellow
+    }
+}
+
+$nativeProject = "$installDir\windows\Signora.Windows\Signora.Windows.csproj"
+$appDir = "$installDir\app"
+$appExe = "$appDir\Signora.Windows.exe"
+
+if ((Test-Path $dotnetExe) -and (Test-Path $nativeProject)) {
+    Write-Host "  [+] Publishing WinUI 3 frontend..." -ForegroundColor Gray
+    $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
+    $env:DOTNET_NOLOGO = "1"
+    try {
+        & $dotnetExe publish $nativeProject `
+            -c Release -r win-x64 --self-contained true -p:Platform=x64 `
+            -p:WindowsAppSDKSelfContained=true `
+            -p:PublishSingleFile=false `
+            -o $appDir
+        if ($LASTEXITCODE -ne 0) {
+            throw "dotnet publish exited with code $LASTEXITCODE"
+        }
+        Set-Content -Path "$appDir\signora-root.txt" -Value $installDir -Encoding UTF8
+        Write-Host "  [OK] Native app published to $appDir" -ForegroundColor Green
+    } catch {
+        Write-Host "  [!] Native app build failed: $_" -ForegroundColor Yellow
+        Write-Host "      You can retry later with: windows\build.ps1" -ForegroundColor DarkGray
+    }
+} else {
+    Write-Host "  [!] .NET SDK or native project missing; keeping the Python dashboard." -ForegroundColor DarkYellow
+}
+
+# ==============================================================================
+# 8. Create Launchers & Shortcuts
+# ==============================================================================
+Write-Host "`n[Step 7/7] Generating launchers and shortcuts..." -ForegroundColor Cyan
 
 $batContent = @"
 @echo off
@@ -201,7 +273,8 @@ set "SCRIPT_DIR=%~dp0"
 if exist "%SCRIPT_DIR%\.venv\Scripts\signora.exe" (
     "%SCRIPT_DIR%\.venv\Scripts\signora.exe" %*
 ) else if exist "%SCRIPT_DIR%\.venv\Scripts\python.exe" (
-    "%SCRIPT_DIR%\.venv\Scripts\python.exe" "%SCRIPT_DIR%\src\signora\cli.py" %*
+    set "PYTHONPATH=%SCRIPT_DIR%src"
+    "%SCRIPT_DIR%\.venv\Scripts\python.exe" -m signora.cli %*
 ) else (
     echo [ERROR] Signora virtual environment not found. Please run install.ps1 first.
     pause
@@ -218,8 +291,14 @@ if ($createShortcut) {
         try {
             $WshShell = New-Object -ComObject WScript.Shell
             $Shortcut = $WshShell.CreateShortcut($shortcutPath)
-            $Shortcut.TargetPath = "$installDir\signora.bat"
-            $Shortcut.WorkingDirectory = $installDir
+            if (Test-Path $appExe) {
+                $Shortcut.TargetPath = $appExe
+                $Shortcut.WorkingDirectory = $appDir
+                $Shortcut.IconLocation = "$appExe,0"
+            } else {
+                $Shortcut.TargetPath = "$installDir\signora.bat"
+                $Shortcut.WorkingDirectory = $installDir
+            }
             $Shortcut.Description = "Signora - 100% Offline Real-Time Sign Language Recognition"
             $Shortcut.Save()
             Write-Host "  [+] Created Desktop shortcut: $shortcutPath" -ForegroundColor Green
@@ -247,6 +326,10 @@ Write-Host "  - Or run: $installDir\signora.bat" -ForegroundColor Cyan
 Write-Host ""
 
 if ($launchAfter) {
-    Write-Host "Launching Signora dashboard..." -ForegroundColor Green
-    Start-Process -FilePath "$installDir\signora.bat"
+    Write-Host "Launching Signora..." -ForegroundColor Green
+    if (Test-Path $appExe) {
+        Start-Process -FilePath $appExe
+    } else {
+        Start-Process -FilePath "$installDir\signora.bat"
+    }
 }

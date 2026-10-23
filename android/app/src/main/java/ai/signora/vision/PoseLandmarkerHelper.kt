@@ -43,15 +43,18 @@ class PoseLandmarkerHelper(
     }
 
     private fun setupLandmarker() {
-        val gpuSuccess = tryInit(Delegate.GPU)
-        if (gpuSuccess) {
-            activeDelegateName = "GPU"
+        // Pose runs alongside HandLandmarker. Two GPU MediaPipe tasks on the same
+        // device can contend for the GPU delegate and silently stop producing
+        // results, so pose stays on CPU. 33 landmarks at ~15 fps is cheap.
+        val cpuSuccess = tryInit(Delegate.CPU)
+        if (cpuSuccess) {
+            activeDelegateName = "CPU"
         } else {
-            val cpuSuccess = tryInit(Delegate.CPU)
-            if (cpuSuccess) {
-                activeDelegateName = "CPU"
+            val gpuSuccess = tryInit(Delegate.GPU)
+            if (gpuSuccess) {
+                activeDelegateName = "GPU"
             } else {
-                onError("Failed to initialize MediaPipe PoseLandmarker with GPU and CPU.")
+                onError("Failed to initialize MediaPipe PoseLandmarker with CPU and GPU.")
             }
         }
 

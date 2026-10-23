@@ -4,8 +4,11 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Matrix
+import android.graphics.Rect
+import android.graphics.RectF
 import android.hardware.camera2.CaptureRequest
 import android.util.Size
+import android.view.Surface
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.*
@@ -30,13 +33,14 @@ class CameraXManager(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,
     private val previewView: PreviewView,
-    private val onFrame: (MPImage, Int, Boolean, Long, Long) -> Unit
+    private val onFrame: (MPImage, MPImage, Int, Boolean, Long, Long) -> Unit
 ) {
 
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var cameraProvider: ProcessCameraProvider? = null
     private var camera: Camera? = null
     private var preview: Preview? = null
+    private var imageAnalysis: ImageAnalysis? = null
     private var activePreviewView: PreviewView? = previewView
 
     // Pre-allocated reusable buffers across frames (zero per-frame heap allocation)
@@ -44,6 +48,9 @@ class CameraXManager(
     private var pingPongIndex = 0
     private val portraitBitmaps = arrayOfNulls<Bitmap>(2)
     private val rotateCanvases = arrayOfNulls<Canvas>(2)
+    private val poseBitmaps = arrayOfNulls<Bitmap>(3)
+    private val poseCanvases = arrayOfNulls<Canvas>(3)
+    private var poseBitmapIndex = 0
     private var rotateMatrix: Matrix? = null
     private var lastRot = -1
     private var lastW = -1
@@ -119,9 +126,30 @@ class CameraXManager(
                 CameraSelector.DEFAULT_BACK_CAMERA
             }
 
-            // Enforce synchronized 4:3 aspect ratio and 640x480 landscape sensor resolution
-            // across Preview and ImageAnalysis so the viewfinder FOV matches neural input 1:1.
-            val resolutionSelector = ResolutionSelector.Builder()
+            // Preview and analysis must share the same target rotation. ImageAnalysis
+            // does not follow display rotations on its own; without this, entering
+            // DeskStage leaves analysis in portrait while the preview rotates to
+            // landscape, which offsets every landmark from the hand.
+            val view = activePreviewView ?: previewView
+            val targetRotation = view.display?.rotation ?: Surface.ROTATION_0
+            val executor = ContextCompat.getMainExecutor(context)
+
+            // Keep both use cases on 4:3 so the viewfinder FOV matches the neural
+            // input. The preview uses a higher resolution than analysis: binding
+            // both at 640x480 made the viewfinder look blocky/grainy.
+            val previewResolutionSelector = ResolutionSelector.Builder()
+                .setAspectRatioStrategy(
+                    AspectRatioStrategy(AspectRatio.RATIO_4_3, AspectRatioStrategy.FALLBACK_RULE_AUTO)
+                )
+                .setResolutionStrategy(
+                    ResolutionStrategy(
+                        Size(1280, 960),
+                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
+                    )
+                )
+                .build()
+
+            val analysisResolutionSelector = ResolutionSelector.Builder()
                 .setAspectRatioStrategy(
                     AspectRatioStrategy(AspectRatio.RATIO_4_3, AspectRatioStrategy.FALLBACK_RULE_AUTO)
                 )
@@ -135,14 +163,12 @@ class CameraXManager(
 
             @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
             val previewBuilder = Preview.Builder()
-                .setResolutionSelector(resolutionSelector)
+                .setResolutionSelector(previewResolutionSelector)
+                .setTargetRotation(targetRotation)
             try {
                 Camera2Interop.Extender(previewBuilder)
                     .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
             } catch (_: Throwable) {}
-
-            val view = activePreviewView ?: previewView
-            val executor = ContextCompat.getMainExecutor(context)
 
             val previewInstance = previewBuilder.build().also {
                 it.setSurfaceProvider(executor, view.surfaceProvider)
@@ -151,7 +177,8 @@ class CameraXManager(
 
             @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
             val analysisBuilder = ImageAnalysis.Builder()
-                .setResolutionSelector(resolutionSelector)
+                .setResolutionSelector(analysisResolutionSelector)
+                .setTargetRotation(targetRotation)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
             try {
@@ -159,35 +186,41 @@ class CameraXManager(
                     .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
             } catch (_: Throwable) {}
 
-            val imageAnalysis = analysisBuilder.build().also {
+            val analysisInstance = analysisBuilder.build().also {
                 it.setAnalyzer(cameraExecutor) { imageProxy ->
                     processImageProxy(imageProxy)
                 }
             }
+            this.imageAnalysis = analysisInstance
 
             camera = provider.bindToLifecycle(
                 lifecycleOwner,
                 cameraSelector,
                 previewInstance,
-                imageAnalysis
+                analysisInstance
             )
         } catch (exc: Throwable) {
             exc.printStackTrace()
             // Robust fallback: bind with default basic use cases if resolution selector or interop failed
             try {
-                val view = activePreviewView ?: previewView
-                val executor = ContextCompat.getMainExecutor(context)
                 val cameraSelector = if (isFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
-                val fallbackPreview = Preview.Builder().build().also {
-                    it.setSurfaceProvider(executor, view.surfaceProvider)
-                }
+                val fallbackView = activePreviewView ?: previewView
+                val fallbackExecutor = ContextCompat.getMainExecutor(context)
+                val fallbackRotation = fallbackView.display?.rotation ?: Surface.ROTATION_0
+                val fallbackPreview = Preview.Builder()
+                    .setTargetRotation(fallbackRotation)
+                    .build().also {
+                        it.setSurfaceProvider(fallbackExecutor, fallbackView.surfaceProvider)
+                    }
                 this.preview = fallbackPreview
                 val fallbackAnalysis = ImageAnalysis.Builder()
+                    .setTargetRotation(fallbackRotation)
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                     .build().also {
                         it.setAnalyzer(cameraExecutor) { img -> processImageProxy(img) }
                     }
+                this.imageAnalysis = fallbackAnalysis
                 camera = provider.bindToLifecycle(lifecycleOwner, cameraSelector, fallbackPreview, fallbackAnalysis)
             } catch (fallbackExc: Throwable) {
                 fallbackExc.printStackTrace()
@@ -219,9 +252,18 @@ class CameraXManager(
                 onResolutionChanged?.invoke(targetW, targetH)
             }
 
-            // Pre-allocate raw input buffer
-            if (rawBitmap == null || rawBitmap?.width != width || rawBitmap?.height != height) {
-                rawBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            // CameraX RGBA buffers can be padded to a row stride wider than the
+            // logical image. Copying them straight into a width-sized bitmap
+            // shears the frame, which drags every landmark off the hand.
+            val plane = imageProxy.planes[0]
+            val rowStride = plane.rowStride
+            val pixelStride = plane.pixelStride.coerceAtLeast(1)
+            val bufferWidth = (rowStride / pixelStride).coerceAtLeast(width)
+
+            // Pre-allocate raw input buffer at the padded stride width.
+            if (rawBitmap == null || rawBitmap?.width != bufferWidth || rawBitmap?.height != height) {
+                rawBitmap?.recycle()
+                rawBitmap = Bitmap.createBitmap(bufferWidth, height, Bitmap.Config.ARGB_8888)
             }
 
             // Pre-allocate destination upright portrait buffer and transformation matrix
@@ -249,23 +291,45 @@ class CameraXManager(
             }
 
             // Zero-allocation direct native pixel copy
-            val buffer = imageProxy.planes[0].buffer
+            val buffer = plane.buffer
             buffer.rewind()
             rawBitmap!!.copyPixelsFromBuffer(buffer)
 
             val destBitmap = portraitBitmaps[bufIdx]!!
             val destCanvas = rotateCanvases[bufIdx]!!
 
-            // Sub-millisecond hardware blit into upright mirrored portrait bitmap
-            destCanvas.drawBitmap(rawBitmap!!, rotateMatrix!!, null)
+            // Sub-millisecond hardware blit into upright mirrored portrait bitmap.
+            // The source rect clips the padded stride columns without a second copy.
+            val srcRect = Rect(0, 0, width, height)
+            val dstRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
+            destCanvas.save()
+            destCanvas.concat(rotateMatrix!!)
+            destCanvas.drawBitmap(rawBitmap!!, srcRect, dstRect, null)
+            destCanvas.restore()
 
             TrackingProfiler.onConversionDone(frameId)
 
-            // Wrap in MPImage without copying pixels
-            val mpImage = BitmapImageBuilder(destBitmap).build()
+            // Hand and pose run as separate async MediaPipe tasks. They cannot share
+            // one MPImage backed by a ping-pong bitmap: pose inference outlives the
+            // hand frame and the buffer gets overwritten. Pose gets a small ring of
+            // independent buffers so a slow CPU result never reads a recycled frame.
+            val handImage = BitmapImageBuilder(destBitmap).build()
+
+            val ringIndex = poseBitmapIndex
+            poseBitmapIndex = (poseBitmapIndex + 1) % poseBitmaps.size
+
+            var poseBuffer = poseBitmaps[ringIndex]
+            if (poseBuffer == null || poseBuffer.width != targetW || poseBuffer.height != targetH) {
+                poseBitmaps[ringIndex]?.recycle()
+                poseBuffer = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+                poseBitmaps[ringIndex] = poseBuffer
+                poseCanvases[ringIndex] = Canvas(poseBuffer)
+            }
+            poseCanvases[ringIndex]?.drawBitmap(destBitmap, 0f, 0f, null)
+            val poseImage = BitmapImageBuilder(poseBuffer!!).build()
 
             TrackingProfiler.onDetectAsyncCalled(frameId)
-            onFrame(mpImage, 0, isFrontCamera, frameId, frameTime)
+            onFrame(handImage, poseImage, 0, isFrontCamera, frameId, frameTime)
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {
@@ -274,10 +338,21 @@ class CameraXManager(
         }
     }
 
+    /**
+     * ImageAnalysis keeps its target rotation until told otherwise. Call this
+     * whenever the display rotates (for example entering or leaving DeskStage)
+     * so the analysis bitmap and the preview stay in the same orientation.
+     */
+    fun updateTargetRotation(rotation: Int) {
+        preview?.targetRotation = rotation
+        imageAnalysis?.targetRotation = rotation
+    }
+
     fun stopCamera() {
         try {
             cameraProvider?.unbindAll()
             cameraExecutor.shutdown()
+            imageAnalysis = null
             recycleBitmaps()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -294,6 +369,12 @@ class CameraXManager(
             portraitBitmaps[1] = null
             rotateCanvases[0] = null
             rotateCanvases[1] = null
+            for (i in poseBitmaps.indices) {
+                poseBitmaps[i]?.recycle()
+                poseBitmaps[i] = null
+                poseCanvases[i] = null
+            }
+            poseBitmapIndex = 0
             rotateMatrix = null
             lastRot = -1
             lastW = -1

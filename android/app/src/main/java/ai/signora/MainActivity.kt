@@ -1,7 +1,9 @@
 package ai.signora
 
 import android.Manifest
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -10,6 +12,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
 import androidx.compose.runtime.*
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import ai.signora.audio.SignAudio
 import ai.signora.camera.CameraXManager
@@ -28,6 +33,7 @@ import ai.signora.speech.SpeechState
 import ai.signora.speech.SpeechToSignManager
 import ai.signora.tts.SpeechManager
 import ai.signora.profiler.TrackingProfiler
+import ai.signora.ui.DeskStageMode
 import ai.signora.ui.SignoraScreen
 import ai.signora.ui.theme.AppThemeMode
 import ai.signora.ui.theme.AppPalette
@@ -58,7 +64,7 @@ class MainActivity : ComponentActivity() {
 
     private var hasCameraPermission by mutableStateOf(false)
     private var assetStatus by mutableStateOf(AutoAssetManager.AssetStatus(isReady = false, message = "Initializing..."))
-    private var currentMode by mutableStateOf(RecognitionMode.ISL)
+    private var currentMode by mutableStateOf(RecognitionMode.ASL)
     private var dwellProfile by mutableStateOf(DwellProfile.STANDARD)
     private var customDwellMs by mutableStateOf(1000L)
     private var confidenceThreshold by mutableStateOf(0.65f)
@@ -73,11 +79,13 @@ class MainActivity : ComponentActivity() {
     private var themeMode by mutableStateOf(AppThemeMode.DARK)
     private var selectedPalette by mutableStateOf(AppPalette.WALLPAPER)
     private var dynamicColorEnabled by mutableStateOf(true)
+    private var deskStageEnabled by mutableStateOf(false)
     private var debounceState by mutableStateOf(DebounceState())
     private var activeLandmarks by mutableStateOf<List<HandLandmarks>>(emptyList())
     private var activePose by mutableStateOf<PoseLandmarks?>(null)
     @Volatile private var latestPose: PoseLandmarks? = null
     private var handsRestStartTimeMs = 0L
+    private var lastLoggedLabel = ""
 
     private var frameCount = 0
     private var lastFpsTimestamp = System.currentTimeMillis()
@@ -112,6 +120,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+
+        deskStageEnabled = DeskStageMode.isEnabled(this)
+        applyDeskStageWindow(deskStageEnabled)
 
         assetManager = AutoAssetManager(this)
         speechManager = SpeechManager(this)
@@ -168,6 +179,8 @@ class MainActivity : ComponentActivity() {
                     themeMode = themeMode,
                     selectedPalette = selectedPalette,
                     dynamicColor = dynamicColorEnabled,
+                    desktopMode = deskStageEnabled,
+                    onDesktopModeChange = { updateDeskStage(it) },
                     autoCollapseEnabled = autoCollapseEnabled,
                     latestFrameId = latestFrameId,
                     customDwellMs = customDwellMs,
@@ -313,6 +326,47 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun updateDeskStage(enabled: Boolean) {
+        if (deskStageEnabled == enabled) return
+        deskStageEnabled = enabled
+        DeskStageMode.setEnabled(this, enabled)
+        applyDeskStageWindow(enabled)
+    }
+
+    private fun applyDeskStageWindow(enabled: Boolean) {
+        requestedOrientation = if (enabled) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        if (enabled) {
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+
+        // requestedOrientation applies asynchronously; resync once the view has
+        // been laid out in the new orientation.
+        window.decorView.post {
+            if (::previewView.isInitialized) {
+                previewView.display?.rotation?.let { cameraManager?.updateTargetRotation(it) }
+            }
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        window.decorView.post {
+            if (::previewView.isInitialized) {
+                previewView.display?.rotation?.let { cameraManager?.updateTargetRotation(it) }
+            }
+        }
+    }
+
     private fun checkCameraPermission() {
         val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         hasCameraPermission = granted
@@ -345,18 +399,22 @@ class MainActivity : ComponentActivity() {
             modelFile = poseTaskFile,
             onResults = { pose, _, _ ->
                 latestPose = pose
-                activePose = pose
+                runOnUiThread {
+                    androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+                        activePose = pose
+                    }
+                }
             },
-            onError = { _ -> }
+            onError = { msg -> android.util.Log.w("SignoraPose", msg) }
         )
 
         cameraManager = CameraXManager(
             context = this,
             lifecycleOwner = this,
             previewView = previewView,
-            onFrame = { mpImage, rotationDegrees, isFront, frameId, frameTime ->
-                handHelper?.detectLiveStream(mpImage, rotationDegrees, isFront, frameId, frameTime)
-                poseHelper?.detectLiveStream(mpImage, rotationDegrees, isFront, frameId, frameTime)
+            onFrame = { handImage, poseImage, rotationDegrees, isFront, frameId, frameTime ->
+                handHelper?.detectLiveStream(handImage, rotationDegrees, isFront, frameId, frameTime)
+                poseHelper?.detectLiveStream(poseImage, rotationDegrees, isFront, frameId, frameTime)
             }
         ).apply {
             onResolutionChanged = { w, h ->
@@ -441,7 +499,7 @@ class MainActivity : ComponentActivity() {
             }
         } else {
             if (activeMlp.inDim == 220) {
-                FeatureExtractor.extractSpatialFeatures(hands, currentPose, activeMlp.mean)
+                FeatureExtractor.extractSpatialFeatures(hands, currentPose)
             } else {
                 FeatureExtractor.extractIslFeatures(hands)
             }
@@ -470,35 +528,35 @@ class MainActivity : ComponentActivity() {
         val rawResult = activeMlp.predict(feats)
         TrackingProfiler.onMlpDone(frameId)
 
-        // Dynamic motion gesture prioritization:
-        // Neural network forward pass is the ground-truth classifier. Motion trajectory assists only when motion is active.
-        val isGenuineMotion = motionState.isMoving && motionState.speed >= 0.18f
-        val result = if (currentMode == RecognitionMode.ISL && isGenuineMotion && motionState.detectedGesture != null && motionState.gestureConfidence >= 0.85f && (rawResult.label == motionState.detectedGesture || rawResult.confidence < 0.50f)) {
+        if (rawResult.label != lastLoggedLabel && rawResult.top3.isNotEmpty()) {
+            lastLoggedLabel = rawResult.label
+            android.util.Log.d(
+                "SignoraML",
+                "${currentMode.name} top3=" + rawResult.top3.joinToString(" ") {
+                    "${it.first}=${(it.second * 100).toInt()}%"
+                } + " hands=${hands.size} right=${hands.firstOrNull()?.isRightHand}" +
+                    " motion=${motionState.detectedGesture ?: "-"}:${(motionState.gestureConfidence * 100).toInt()}%" +
+                    " speed=${(motionState.speed * 100).toInt() / 100f} pattern=${motionState.pattern}"
+            )
+        }
+
+        // Dynamic motion gestures are a fallback only. A deliberate ISL motion
+        // phrase (chest tap, wave, etc.) may override a static word, but never a
+        // confidently detected single letter.
+        val staticIsLetter = rawResult.label.length == 1
+        val result = if (
+            currentMode == RecognitionMode.ISL &&
+            motionState.isMoving &&
+            motionState.detectedGesture != null &&
+            motionState.gestureConfidence >= 0.85f &&
+            (!staticIsLetter || rawResult.confidence < 0.45f)
+        ) {
             RecognitionResult(
                 label = motionState.detectedGesture,
                 confidence = motionState.gestureConfidence,
                 margin = 0.50f,
                 top3 = listOf(Pair(motionState.detectedGesture, motionState.gestureConfidence))
             )
-        } else if (currentMode == RecognitionMode.ISL && isGenuineMotion) {
-            val topMotion = rawResult.top3.firstOrNull { DebounceEngine.MOTION_SIGNS.contains(it.first) }
-            val hasMatchingPattern = when (topMotion?.first) {
-                "HELLO_MOTION" -> motionState.pattern == ai.signora.engine.PATTERN_WAVE
-                "YOU_MOTION" -> motionState.pattern == ai.signora.engine.PATTERN_FORWARD_PUSH
-                "MY_NAME_IS_MOTION" -> motionState.pattern == ai.signora.engine.PATTERN_CHEST_CONTACT || motionState.dualMotion == ai.signora.engine.DUAL_CONVERGING
-                "NO_MOTION" -> motionState.pattern == ai.signora.engine.PATTERN_SHAKE
-                "WHAT_MOTION" -> motionState.pattern == ai.signora.engine.PATTERN_PALMS_UP || motionState.dualMotion == ai.signora.engine.DUAL_DIVERGING
-                "J_MOTION" -> motionState.pattern == ai.signora.engine.PATTERN_J_TRACE
-                "Z_MOTION" -> motionState.pattern == ai.signora.engine.PATTERN_Z_TRACE
-                else -> false
-            }
-            if (topMotion != null && hasMatchingPattern && (topMotion.first == rawResult.label || topMotion.second >= 0.50f)) {
-                rawResult.copy(label = topMotion.first, confidence = (topMotion.second * 1.25f).coerceAtMost(0.99f))
-            } else if (motionState.pattern == ai.signora.engine.PATTERN_WAVE && motionState.speed >= 0.18f && (rawResult.label == "HELLO" || rawResult.top3.any { it.first == "HELLO_MOTION" })) {
-                rawResult.copy(label = "HELLO_MOTION", confidence = (rawResult.confidence * 1.15f).coerceAtMost(0.98f))
-            } else {
-                rawResult
-            }
         } else {
             rawResult
         }
@@ -548,7 +606,6 @@ class MainActivity : ComponentActivity() {
         // Atomically batch Compose snapshot state mutations in a single apply pass
         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
             activeLandmarks = hands
-            activePose = currentPose
             debounceState = newState
             if (newFps != null) currentFps = newFps
             if (updatedNlpState != null) nlpState = updatedNlpState
@@ -560,6 +617,14 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         if (::previewView.isInitialized) {
             cameraManager?.attachPreviewView(previewView)
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && deskStageEnabled) {
+            WindowCompat.getInsetsController(window, window.decorView)
+                .hide(WindowInsetsCompat.Type.systemBars())
         }
     }
 

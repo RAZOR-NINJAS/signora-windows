@@ -8,7 +8,7 @@ the pre-trained model for both Python and the Android APK.
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
@@ -65,6 +65,7 @@ def import_phone_dataset(
     auto_train: bool = True,
     epochs: int = 50,
     fresh: bool = True,
+    exclude_labels: Optional[Iterable[str]] = None,
 ) -> Dict[str, Any]:
     """Parse phone-recorded dataset JSON, save .npy arrays, and optionally retrain model."""
     json_path = Path(json_path)
@@ -109,6 +110,7 @@ def import_phone_dataset(
     if not classes_dict and "format" not in data:
         classes_dict = {k: v for k, v in data.items() if isinstance(v, list)}
 
+    excluded = {label.upper() for label in (exclude_labels or [])}
     imported_classes: List[str] = []
     sample_stats: Dict[str, int] = {}
 
@@ -116,6 +118,9 @@ def import_phone_dataset(
         if not raw_samples:
             continue
         clean_name = cls_name.upper().strip()
+        if clean_name in excluded:
+            print(f"  ⊘ Skipping excluded class '{clean_name}'")
+            continue
         arr = np.array(raw_samples, dtype=np.float32)
         if arr.ndim == 1:
             arr = arr.reshape(1, -1)
@@ -176,6 +181,7 @@ def import_phone_dataset(
             epochs=epochs,
             in_dim=feature_dim,
             fresh=fresh,
+            exclude_labels=excluded or None,
         )
         if feature_dim == 220:
             print("\n⚡ Retraining desktop 164D standard ISL neural model (data/isl/)...")
@@ -184,6 +190,7 @@ def import_phone_dataset(
                 epochs=epochs,
                 in_dim=164,
                 fresh=fresh,
+                exclude_labels=excluded or None,
             )
 
     return {

@@ -45,6 +45,10 @@ data/
 scratch/
 temp/
 
+# Windows native build artifacts
+/app/
+/.dotnet/
+
 # Android builds & caches
 .gradle/
 android/**/build/
