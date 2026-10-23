@@ -73,8 +73,16 @@ signora doctor
 ```
 
 ### Windows One-Shot Setup
-From the repository root on a stock Windows 10/11 laptop, double-click
-`Pixel-Install.cmd` for the animated pixel-game installer, or run:
+Get the code onto the laptop. No git is required: open
+[signora-windows](https://github.com/RAZOR-NINJAS/signora-windows), choose
+**Code > Download ZIP**, and extract it. With git:
+```powershell
+git clone https://github.com/RAZOR-NINJAS/signora-windows.git
+cd signora-windows
+```
+
+From the repository root, double-click `Pixel-Install.cmd` for the animated
+pixel-game installer, or run:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-windows.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-windows.ps1 -Pixel
@@ -89,8 +97,8 @@ For the guided installer with prompts, double-click `Install-Signora.cmd`.
 ### Windows Manual Setup
 ```powershell
 # 1. Clone or download Signora
-git clone https://github.com/RAZOR-NINJAS/signora.git
-cd signora
+git clone https://github.com/RAZOR-NINJAS/signora-windows.git
+cd signora-windows
 
 # 2. Create venv with Python 3.11
 py -3.11 -m venv .venv
