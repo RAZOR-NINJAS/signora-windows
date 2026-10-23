@@ -398,7 +398,6 @@ function Write-PixelLogo {
         $lines += (($letters | ForEach-Object { $_[$row] }) -join " ")
     }
     $lines += ""
-    $lines += "~ PIXEL FARM EDITION ~"
     $lines += "OFFLINE SIGN LANGUAGE   -   WINDOWS"
 
     Write-PxPanel -Lines $lines -Width 62 -Fg "Wood" -Bg "BgParch"
