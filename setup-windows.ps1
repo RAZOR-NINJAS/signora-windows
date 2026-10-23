@@ -364,8 +364,38 @@ function Assert-Native([string]$What) {
 }
 
 trap {
+    $failure = $_
+    $detail = @(
+        "Signora setup failure",
+        "Time:       $(Get-Date -Format o)",
+        "Message:    $($failure.Exception.Message)",
+        "Type:       $($failure.Exception.GetType().FullName)",
+        "Line:       $($failure.InvocationInfo.ScriptLineNumber)",
+        "Command:    $($failure.InvocationInfo.MyCommand)",
+        "Root:       $Root",
+        "PowerShell: $($PSVersionTable.PSVersion)",
+        "OS:         $([Environment]::OSVersion.VersionString)",
+        "",
+        "Position:",
+        $failure.InvocationInfo.PositionMessage,
+        "",
+        "Stack:",
+        $failure.ScriptStackTrace
+    ) -join "`r`n"
+
+    $errorLog = Join-Path $Root "install-error.log"
+    try {
+        Set-Content -Path $errorLog -Value $detail -Encoding UTF8
+    } catch {
+        $errorLog = "(could not write a log)"
+    }
+
     Write-Host ""
-    Write-Fail "$($_.Exception.Message)"
+    Write-Fail "$($failure.Exception.Message)"
+    if ($failure.InvocationInfo.ScriptLineNumber) {
+        Write-Host "  At line $($failure.InvocationInfo.ScriptLineNumber)." -ForegroundColor DarkGray
+    }
+    Write-Host "  Details: $errorLog" -ForegroundColor DarkGray
     Write-Host "  Setup stopped. Fix the issue above and rerun." -ForegroundColor DarkGray
     exit 1
 }

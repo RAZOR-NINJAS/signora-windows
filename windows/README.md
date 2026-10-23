@@ -125,3 +125,9 @@ reintroduce it.
   directory to see the Python error, or check the log line under the video.
 - **ASL selected but no signs**: the ASL weights are downloaded on first use.
   Ensure the machine is online for that first launch.
+- **Setup window closes after "Press any key"**: the script stopped before
+  finishing. Re-run it and read `install-error.log` in the repository root; it
+  records the failing line, command, and stack trace.
+- **The app flashes and exits**: `%LOCALAPPDATA%\Signora\startup-error.log`
+  holds the exception, and a dialog shows it on screen. Mica is applied only on
+  Windows 11, so Windows 10 uses the default backdrop.

@@ -1,3 +1,4 @@
+using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -13,7 +14,12 @@ public sealed partial class MainWindow : Window
         Title = "Signora";
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
-        SystemBackdrop = new MicaBackdrop();
+
+        // Mica only exists on Windows 11; on Windows 10 the assignment throws.
+        if (MicaController.IsSupported())
+        {
+            SystemBackdrop = new MicaBackdrop();
+        }
 
         Nav.SelectedItem = Nav.MenuItems[0];
         if (ContentFrame.CurrentSourcePageType is null)
