@@ -58,6 +58,19 @@ jobs:
             throw "The app wrote a startup error."
           }
           if ($p.HasExited) { throw "The app exited early with code $($p.ExitCode)." }
+
+          $programs = [Environment]::GetFolderPath("Programs")
+          $lnk = Join-Path $programs "Signora.lnk"
+          if (-not (Test-Path $lnk)) {
+            throw "The app did not register a Start Menu shortcut."
+          }
+          $shell = New-Object -ComObject WScript.Shell
+          $target = $shell.CreateShortcut($lnk).TargetPath
+          Write-Host "Start Menu shortcut: $target"
+          if ($target -ne (Resolve-Path "app/Signora.Windows.exe").Path) {
+            throw "Start Menu shortcut points at $target"
+          }
+
           Stop-Process -Id $p.Id -Force
 
       - name: Upload logs
