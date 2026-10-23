@@ -55,7 +55,10 @@
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
                         <ProgressRing IsActive="True" Width="36" Height="36" />
                         <TextBlock x:Name="WaitingText" Text="Starting engine..."
-                                   HorizontalAlignment="Center" />
+                                   HorizontalAlignment="Center"
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   MaxWidth="760" />
                     </StackPanel>
                 </Border>
             </Grid>

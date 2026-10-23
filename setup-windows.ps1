@@ -648,6 +648,21 @@ if ((Test-Path $appExe) -and -not $Rebuild) {
     if (-not $newest -or $newest.LastWriteTimeUtc -le $exeTime) {
         $needsPublish = $false
     }
+
+    # A partial copy or interrupted build can leave the exe without its native
+    # runtime; rebuild instead of launching an app that cannot start.
+    $requiredRuntime = @(
+        "Microsoft.WindowsAppRuntime.dll",
+        "Microsoft.Graphics.Canvas.dll",
+        "Microsoft.WindowsAppRuntime.Bootstrap.dll"
+    )
+    foreach ($runtimeFile in $requiredRuntime) {
+        if (-not (Test-Path (Join-Path $appDir $runtimeFile))) {
+            Write-Warn "Missing runtime file $runtimeFile; rebuilding the app."
+            $needsPublish = $true
+            break
+        }
+    }
 }
 
 if (-not $needsPublish) {
@@ -691,13 +706,22 @@ if (-not $NoShortcut) {
         $shell = $null
     }
 
+    # Prefer the shell's own Start Menu folder: %APPDATA% can be redirected
+    # (OneDrive, roaming profiles) while GetFolderPath still resolves correctly.
+    $startMenu = [Environment]::GetFolderPath("Programs")
+    if ([string]::IsNullOrWhiteSpace($startMenu)) {
+        $startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($startMenu) -and -not (Test-Path $startMenu)) {
+        try { New-Item -ItemType Directory -Path $startMenu -Force | Out-Null } catch { }
+    }
+
     $shortcutPaths = @()
     $desktop = [Environment]::GetFolderPath("Desktop")
     if ($desktop -and (Test-Path $desktop)) {
         $shortcutPaths += (Join-Path $desktop "Signora.lnk")
     }
-    $startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
-    if (Test-Path $startMenu) {
+    if ($startMenu -and (Test-Path $startMenu)) {
         $shortcutPaths += (Join-Path $startMenu "Signora.lnk")
     }
 
@@ -708,15 +732,32 @@ if (-not $NoShortcut) {
     } else {
         foreach ($shortcutPath in $shortcutPaths) {
             try {
-                $shortcut = $shell.CreateShortcut($shortcutPath)
-                $shortcut.TargetPath = $appExe
-                $shortcut.WorkingDirectory = $appDir
-                $shortcut.IconLocation = "$appExe,0"
-                $shortcut.Description = "Signora - Offline Sign Language Recognition"
-                $shortcut.Save()
-                Write-Ok "Shortcut: $shortcutPath"
+                $needsWrite = $true
+                if (Test-Path $shortcutPath) {
+                    try {
+                        $existing = $shell.CreateShortcut($shortcutPath)
+                        if ($existing.TargetPath -eq $appExe -and
+                            $existing.WorkingDirectory -eq $appDir) {
+                            $needsWrite = $false
+                        }
+                    } catch {
+                        $needsWrite = $true
+                    }
+                }
+
+                if ($needsWrite) {
+                    $shortcut = $shell.CreateShortcut($shortcutPath)
+                    $shortcut.TargetPath = $appExe
+                    $shortcut.WorkingDirectory = $appDir
+                    $shortcut.IconLocation = "$appExe,0"
+                    $shortcut.Description = "Signora - Offline Sign Language Recognition"
+                    $shortcut.Save()
+                    Write-Ok "Shortcut repaired: $shortcutPath"
+                } else {
+                    Write-Ok "Shortcut OK: $shortcutPath"
+                }
             } catch {
-                Write-Warn "Could not create $shortcutPath : $_"
+                Write-Warn "Could not write $shortcutPath : $_"
             }
         }
     }

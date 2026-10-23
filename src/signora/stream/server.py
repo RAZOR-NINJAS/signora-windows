@@ -30,6 +30,23 @@ class StreamingOutput:
             "speaking": False,
             "fps": 0.0,
         }
+        self.ready = False
+        self.camera = ""
+        self.error = ""
+
+    def mark_ready(self, camera: str = "") -> None:
+        """Signal that the pipeline is live and serving frames."""
+        with self.condition:
+            self.ready = True
+            self.camera = camera
+            self.error = ""
+            self.condition.notify_all()
+
+    def mark_failed(self, message: str) -> None:
+        with self.condition:
+            self.ready = False
+            self.error = message
+            self.condition.notify_all()
 
     def update_frame(self, bgr_frame: np.ndarray, quality: int = 85) -> None:
         """Encode and buffer a new BGR frame."""
@@ -202,10 +219,21 @@ class StreamingHandler(http.server.BaseHTTPRequestHandler):
                 pass
 
         elif self.path == "/api/health":
+            output = StreamingHandler.output
+            payload: Dict[str, Any] = {
+                "ok": True,
+                "ready": bool(output and output.ready),
+                "camera": output.camera if output else "",
+            }
+            if output and output.error:
+                payload["error"] = output.error
+
+            body = json.dumps(payload).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(b'{"ok": true}')
+            self.wfile.write(body)
 
         elif self.path == "/api/status":
             if self.output is None:

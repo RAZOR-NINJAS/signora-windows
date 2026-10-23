@@ -43,6 +43,11 @@ public sealed partial class LivePage : Page
     private bool _starting;
     private bool _suppressModeChange;
 
+    private static readonly string EngineLogPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Signora",
+        "engine.log");
+
     public LivePage()
     {
         InitializeComponent();
@@ -51,6 +56,7 @@ public sealed partial class LivePage : Page
         _engine.FrameReady += OnFrameReady;
         _engine.StatusChanged += OnStatusChanged;
         _engine.Log += OnEngineLog;
+        _engine.EngineExited += OnEngineExited;
 
         Loaded += LivePage_Loaded;
         Unloaded += LivePage_Unloaded;
@@ -81,6 +87,7 @@ public sealed partial class LivePage : Page
         _engine.FrameReady -= OnFrameReady;
         _engine.StatusChanged -= OnStatusChanged;
         _engine.Log -= OnEngineLog;
+        _engine.EngineExited -= OnEngineExited;
 
         await _engine.DisposeAsync();
 
@@ -100,7 +107,7 @@ public sealed partial class LivePage : Page
         _starting = true;
         StartStopButton.IsEnabled = false;
         WaitingPanel.Visibility = Visibility.Visible;
-        WaitingText.Text = "Starting Signora engine...";
+        WaitingText.Text = "Starting Signora engine and opening the camera...";
 
         try
         {
@@ -128,7 +135,11 @@ public sealed partial class LivePage : Page
                 string detail = string.IsNullOrWhiteSpace(_engine.LastLog)
                     ? "Engine failed to start. Run Pixel-Install.cmd again."
                     : $"Engine: {_engine.LastLog}";
-                WaitingText.Text = detail;
+                WaitingText.Text =
+                    $"{detail}{Environment.NewLine}{Environment.NewLine}" +
+                    $"Camera index {_settings.Data.CameraIndex} did not work. " +
+                    $"Open Settings and try 1, 2 or 3.{Environment.NewLine}" +
+                    $"Log: {EngineLogPath}";
                 StartStopButton.Content = "Start";
             }
         }
@@ -264,6 +275,32 @@ public sealed partial class LivePage : Page
         {
             DispatcherQueue.TryEnqueue(() => EngineStatusText.Text = message);
         }
+    }
+
+    private void OnEngineExited()
+    {
+        // The engine can die long after StartAsync returned (camera unplugged,
+        // device claimed by another app). Surface it instead of freezing on the
+        // last frame with no explanation.
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            StartStopButton.Content = "Start";
+            StartStopButton.IsEnabled = true;
+            WaitingPanel.Visibility = Visibility.Visible;
+
+            string detail = string.IsNullOrWhiteSpace(_engine.LastLog)
+                ? "The engine stopped unexpectedly."
+                : _engine.LastLog;
+            WaitingText.Text =
+                $"{detail}{Environment.NewLine}{Environment.NewLine}" +
+                $"Press Start to retry.{Environment.NewLine}Log: {EngineLogPath}";
+
+            TranscriptText.Text = "";
+            SignText.Text = "—";
+            ConfidenceBar.Value = 0;
+            DwellBar.Value = 0;
+            FpsText.Text = "0 fps";
+        });
     }
 
     private async void Space_Click(object sender, RoutedEventArgs e)

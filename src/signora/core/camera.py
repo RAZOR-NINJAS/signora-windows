@@ -38,54 +38,116 @@ class Camera:
             "True",
         )
         self.cap: Optional[Union[cv2.VideoCapture, FakeCamera]] = None
+        self.active_source: Union[int, str] = source
+        self.backend = "synthetic" if self.use_fake else "unknown"
         self._fps_actual = 0.0
         self._frame_count = 0
         self._last_fps_calc = time.monotonic()
 
+    def _candidate_sources(self) -> list:
+        """Return the requested source followed by the other common camera indexes.
+
+        Windows laptops frequently expose the built-in camera at index 1 after a
+        USB webcam has been plugged in, so a stale index in settings used to make
+        the engine exit even though a perfectly good camera was present.
+        """
+        source = int(self.source) if isinstance(self.source, str) and self.source.isdigit() else self.source
+        candidates = [source]
+        if isinstance(source, int):
+            candidates.extend(idx for idx in (0, 1, 2, 3) if idx != source)
+        return candidates
+
+    @staticmethod
+    def _prime(cap: cv2.VideoCapture, seconds: float = 2.0) -> bool:
+        """Wait for a first real frame; some virtual devices open but never deliver."""
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            try:
+                ret, frame = cap.read()
+            except Exception:
+                return False
+            if ret and frame is not None:
+                return True
+            time.sleep(0.05)
+        return False
+
     def open(self) -> None:
-        """Open camera device or virtual camera."""
+        """Open the first camera that actually delivers frames."""
         if self.use_fake:
             self.cap = FakeCamera(width=self.target_width, height=self.target_height)
+            self.active_source = "synthetic"
+            self.backend = "synthetic"
             return
 
-        self.cap = get_camera_capture(
-            self.source,
-            buffer_size=self.buffer_size,
-            width=self.target_width,
-            height=self.target_height,
-        )
-
-        if not self.cap.isOpened():
-            # If default camera failed, check if fake camera is requested as fallback
-            if os.environ.get("SIGNORA_ALLOW_FAKE_FALLBACK", "0") in ("1", "true", "True"):
-                self.cap = FakeCamera(width=self.target_width, height=self.target_height)
-                return
-
-            advice = (
-                (
-                    "Ensure your camera is connected and not in use by another app.\n"
-                    "On Windows: Verify Settings -> Privacy & Security -> Camera permissions.\n"
-                    "On Linux: Verify your user belongs to the 'video' group (sudo usermod -a -G video $USER)."
+        attempts = []
+        for candidate in self._candidate_sources():
+            cap = None
+            try:
+                cap = get_camera_capture(
+                    candidate,
+                    buffer_size=self.buffer_size,
+                    width=self.target_width,
+                    height=self.target_height,
                 )
-                if not is_windows()
-                else (
-                    "Ensure your camera is connected and not blocked by Windows Privacy settings.\n"
-                    "Check: Settings -> Privacy & Security -> Camera -> Allow apps to access your camera."
-                )
+            except Exception as exc:
+                attempts.append(f"{candidate}: {exc}")
+                continue
+
+            if cap is None or not cap.isOpened():
+                attempts.append(f"{candidate}: no device")
+                if cap is not None:
+                    cap.release()
+                continue
+
+            if not self._prime(cap):
+                attempts.append(f"{candidate}: opened but delivered no frames")
+                cap.release()
+                continue
+
+            self.cap = cap
+            self.active_source = candidate
+            self.backend = "DirectShow" if is_windows() else "V4L2"
+            print(
+                f"[Camera] Using source {candidate} ({self.backend})",
+                flush=True,
             )
-            raise CameraError(f"Could not open camera device source '{self.source}'.\n{advice}")
 
-        # Set dimensions, target FPS, and enforce strict zero-latency hardware buffer limit
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.target_width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.target_height)
-        try:
-            self.cap.set(cv2.CAP_PROP_FPS, 30)
-        except Exception:
-            pass
-        try:
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        except Exception:
-            pass
+            # Dimensions, target FPS, and strict zero-latency hardware buffer.
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.target_width)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.target_height)
+            try:
+                self.cap.set(cv2.CAP_PROP_FPS, 30)
+            except Exception:
+                pass
+            try:
+                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            except Exception:
+                pass
+            return
+
+        # If every real device failed, honour the explicit synthetic-camera opt-in.
+        if os.environ.get("SIGNORA_ALLOW_FAKE_FALLBACK", "0") in ("1", "true", "True"):
+            self.cap = FakeCamera(width=self.target_width, height=self.target_height)
+            self.active_source = "synthetic"
+            self.backend = "synthetic"
+            return
+
+        advice = (
+            (
+                "Ensure your camera is connected and not in use by another app.\n"
+                "On Windows: Verify Settings -> Privacy & Security -> Camera permissions.\n"
+                "On Linux: Verify your user belongs to the 'video' group (sudo usermod -a -G video $USER)."
+            )
+            if not is_windows()
+            else (
+                "Ensure your camera is connected and not blocked by Windows Privacy settings.\n"
+                "Check: Settings -> Privacy & Security -> Camera -> Allow apps to access your camera."
+            )
+        )
+        tried = "\n".join(f"  - {line}" for line in attempts) or "  - no camera indexes available"
+        raise CameraError(
+            f"Could not open any camera (requested '{self.source}'). Tried:\n{tried}\n{advice}"
+        )
 
     def read(self) -> Tuple[bool, Optional[np.ndarray]]:
         """Read a single frame from the camera, strictly guaranteeing 16:9 aspect ratio and zero buffer lag."""

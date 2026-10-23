@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
+using Signora.Windows.Services;
 
 namespace Signora.Windows;
 
@@ -21,6 +22,7 @@ public partial class App : Application
     {
         try
         {
+            ShortcutService.Ensure();
             RootWindow = new MainWindow();
             RootWindow.Activate();
         }

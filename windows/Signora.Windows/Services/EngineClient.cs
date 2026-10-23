@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Signora.Windows.Models;
 
 namespace Signora.Windows.Services;
@@ -23,6 +24,10 @@ public sealed class EngineClient : IAsyncDisposable
     private CancellationTokenSource? _cts;
     private Task? _videoTask;
     private Task? _statusTask;
+    private volatile bool _stopping;
+
+    /// <summary>Raised when the engine dies unexpectedly after a successful start.</summary>
+    public event Action? EngineExited;
 
     /// <summary>Most recent engine output line, for surfacing failures in the UI.</summary>
     public string LastLog { get; private set; } = "";
@@ -66,6 +71,8 @@ public sealed class EngineClient : IAsyncDisposable
         {
             await StopAsync();
         }
+
+        _stopping = false;
 
         if (!File.Exists(EnginePaths.Python) && Path.IsPathRooted(EnginePaths.Python))
         {
@@ -129,21 +136,29 @@ public sealed class EngineClient : IAsyncDisposable
             StartInfo = psi,
             EnableRaisingEvents = true,
         };
-        _process.OutputDataReceived += (_, e) =>
+        Process current = _process!;
+        current.OutputDataReceived += (_, e) =>
         {
             if (!string.IsNullOrWhiteSpace(e.Data))
             {
                 Record(e.Data);
             }
         };
-        _process.ErrorDataReceived += (_, e) =>
+        current.ErrorDataReceived += (_, e) =>
         {
             if (!string.IsNullOrWhiteSpace(e.Data))
             {
                 Record(e.Data);
             }
         };
-        _process.Exited += (_, _) => Record("Engine process exited.");
+        current.Exited += (_, _) =>
+        {
+            Record($"Engine process exited (code {SafeExitCode(current)}).");
+            if (!_stopping && ReferenceEquals(_process, current))
+            {
+                EngineExited?.Invoke();
+            }
+        };
 
         try
         {
@@ -204,10 +219,28 @@ public sealed class EngineClient : IAsyncDisposable
                 using var response = await _http.GetAsync($"{BaseUrl}/api/health", probe.Token);
                 if (response.IsSuccessStatusCode)
                 {
-                    CancellationToken token = cts.Token;
-                    _videoTask = Task.Run(() => ReadVideoAsync(token), CancellationToken.None);
-                    _statusTask = Task.Run(() => PollStatusAsync(token), CancellationToken.None);
-                    return true;
+                    bool ready = true;
+                    try
+                    {
+                        await using var body = await response.Content.ReadAsStreamAsync(probe.Token);
+                        using var document = await JsonDocument.ParseAsync(body, cancellationToken: probe.Token);
+                        if (document.RootElement.TryGetProperty("ready", out JsonElement flag))
+                        {
+                            ready = flag.ValueKind != JsonValueKind.False;
+                        }
+                    }
+                    catch
+                    {
+                        // Engines that predate the readiness flag report only {"ok":true}.
+                    }
+
+                    if (ready)
+                    {
+                        CancellationToken token = cts.Token;
+                        _videoTask = Task.Run(() => ReadVideoAsync(token), CancellationToken.None);
+                        _statusTask = Task.Run(() => PollStatusAsync(token), CancellationToken.None);
+                        return true;
+                    }
                 }
             }
             catch
@@ -249,6 +282,18 @@ public sealed class EngineClient : IAsyncDisposable
         Log?.Invoke(line);
     }
 
+    private static int SafeExitCode(Process? process)
+    {
+        try
+        {
+            return process?.ExitCode ?? -1;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
     private void ResetProcess()
     {
         _process?.Dispose();
@@ -259,6 +304,7 @@ public sealed class EngineClient : IAsyncDisposable
 
     public async Task StopAsync()
     {
+        _stopping = true;
         try
         {
             _cts?.Cancel();

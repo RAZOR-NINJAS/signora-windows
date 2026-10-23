@@ -65,8 +65,15 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            // A broken page must not take the whole window down; log and stay put.
+            // A broken page must not take the whole window down; log it and
+            // show something actionable instead of silently doing nothing.
             AppLog.Write($"navigate:{page.Name}", ex);
+            ContentFrame.Content = new TextBlock
+            {
+                Text = $"Could not open {page.Name}.{Environment.NewLine}{Environment.NewLine}{ex.Message}",
+                Margin = new Thickness(28),
+                TextWrapping = TextWrapping.Wrap,
+            };
         }
     }
 }

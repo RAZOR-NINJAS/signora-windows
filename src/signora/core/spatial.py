@@ -104,6 +104,11 @@ class SpatialPipeline:
         return self._hand_pipe.error
 
     @property
+    def camera_source(self) -> Any:
+        """Camera index actually opened, after fallback."""
+        return self._hand_pipe.camera_source
+
+    @property
     def delegate(self) -> str:
         """Hardware delegate used by underlying pipeline (GPU or CPU)."""
         return self._hand_pipe.delegate

@@ -141,7 +141,16 @@ def run_native_bridge(
     # cameras can take several seconds on Windows. If we probe first the UI
     # declares startup failed before the server ever answers.
     server = WebStreamServer(host="127.0.0.1", port=port)
-    if not server.start():
+    bound = False
+    for _ in range(20):
+        if server.start():
+            bound = True
+            break
+        # A previous engine instance can still hold the port for a moment
+        # after the desktop app restarts a session; retry instead of dying.
+        time.sleep(0.25)
+
+    if not bound:
         print(f"[NativeBridge] Could not bind http://127.0.0.1:{port}", file=sys.stderr)
         return 1
 
@@ -149,7 +158,7 @@ def run_native_bridge(
 
     print(f"[NativeBridge] mode={mode} source={source} port={port} quality={quality}", flush=True)
     if use_fake:
-        print("[NativeBridge] No physical camera found; using synthetic camera.", flush=True)
+        print("[NativeBridge] Synthetic camera enabled; no hardware capture.", flush=True)
 
     tts = PiperTTS(enabled=not no_tts)
     paused = False
@@ -193,13 +202,16 @@ def run_native_bridge(
             inference_width=960 if high else 640,
         )
         if not pipe.started.wait(timeout=20) or pipe.error:
-            _report_camera_failure(source, pipe.error)
+            _report_camera_failure(getattr(pipe, "camera_source", source), pipe.error)
             server.stop()
             return 1
+
+        server.output.mark_ready(str(getattr(pipe, "camera_source", source)))
 
         frame_count = 0
         fps = 0.0
         t0 = time.monotonic()
+        failed = False
         try:
             while running:
                 command = server.output.pop_command()
@@ -209,6 +221,12 @@ def run_native_bridge(
 
                 frame, landmarks, handedness = pipe.read(timeout=1.0)
                 if frame is None:
+                    if pipe.error:
+                        _report_camera_failure(
+                            getattr(pipe, "camera_source", source), pipe.error
+                        )
+                        failed = True
+                        break
                     time.sleep(0.005)
                     continue
 
@@ -254,7 +272,7 @@ def run_native_bridge(
             pipe.close()
             tts.close()
             server.stop()
-        return 0
+        return 1 if failed else 0
 
     # ------------------------------------------------------------ ISL/Body
     spatial_ckpt = get_default_models_dir() / "isl_spatial_mlp.pt"
@@ -281,14 +299,23 @@ def run_native_bridge(
         height=WINDOW_HEIGHT,
     )
     if not pipe.started.wait(timeout=20) or pipe.error:
-        _report_camera_failure(source, pipe.error)
+        _report_camera_failure(getattr(pipe, "camera_source", source), pipe.error)
         server.stop()
         return 1
+
+    server.output.mark_ready(str(getattr(pipe, "camera_source", source)))
+
+    print(
+        f"[NativeBridge] ISL model: {'spatial 220-D' if use_spatial else 'baseline 164-D'} "
+        f"labels={len(predictor.labels)} pose={'on' if getattr(pipe, '_pose', None) else 'off'}",
+        flush=True,
+    )
 
     motion_tracker = HandMotionTracker()
     frame_count = 0
     fps = 0.0
     t0 = time.monotonic()
+    failed = False
     try:
         while running:
             command = server.output.pop_command()
@@ -298,6 +325,12 @@ def run_native_bridge(
 
             frame, landmarks, handedness, pose_lms = pipe.read(timeout=1.0)
             if frame is None:
+                if pipe.error:
+                    _report_camera_failure(
+                        getattr(pipe, "camera_source", source), pipe.error
+                    )
+                    failed = True
+                    break
                 time.sleep(0.005)
                 continue
 
@@ -405,7 +438,7 @@ def run_native_bridge(
         pipe.close()
         tts.close()
         server.stop()
-    return 0
+    return 1 if failed else 0
 
 
 def _speak_confirmed(tts: PiperTTS, confirmed: str, buffer: str) -> None:

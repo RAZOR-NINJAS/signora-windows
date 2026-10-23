@@ -13,7 +13,7 @@ import numpy as np
 from mediapipe.tasks import python as mpp
 from mediapipe.tasks.python import vision
 
-from signora.core.camera import Camera
+from signora.core.camera import Camera, CameraError
 from signora.models.manifest import get_model_path
 
 HAND_CONNECTIONS = [
@@ -96,6 +96,7 @@ class HandPipeline:
         self.started = threading.Event()
         self.error: Optional[Exception] = None
         self.delegate = "CPU"
+        self.camera_source: Any = source
         self._landmarker = None
 
         from signora.core.filter import OneEuroFilter3D
@@ -174,13 +175,22 @@ class HandPipeline:
                 use_fake=self.use_fake,
             )
             with cam:
+                self.camera_source = cam.active_source
                 self.started.set()
+                last_frame_at = time.monotonic()
                 while not self._stop.is_set():
                     ret, frame = cam.read()
                     if not ret or frame is None:
+                        # A unplugged or suspended camera otherwise leaves the UI
+                        # waiting on a frame forever with no explanation.
+                        if time.monotonic() - last_frame_at > 8.0:
+                            raise CameraError(
+                                f"Camera '{cam.active_source}' stopped delivering frames."
+                            )
                         time.sleep(0.003)
                         continue
 
+                    last_frame_at = time.monotonic()
                     if self.mirror:
                         frame = cv2.flip(frame, 1)
 

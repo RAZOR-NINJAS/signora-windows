@@ -3,6 +3,14 @@ setlocal EnableExtensions
 title Signora Setup
 cd /d "%~dp0"
 
+rem There is one supported Windows installer. Keep every entry point on it so a
+rem wrong double-click can never land in the legacy Python-only path, which
+rem skips the WinUI build and the Start Menu shortcut.
+if exist "%~dp0Pixel-Install.cmd" (
+    call "%~dp0Pixel-Install.cmd" %*
+    exit /b %ERRORLEVEL%
+)
+
 echo "%~dp0" | findstr /i /c:"\AppData\Local\Temp\" /c:".zip" >nul
 if errorlevel 1 if exist "%~dp0install.ps1" goto :run_local
 

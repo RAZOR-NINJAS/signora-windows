@@ -16,7 +16,6 @@ def test_v4l2_helpers():
     """Ensure v4l2 device listing and setup instructions work."""
     devices = list_v4l2_devices()
     assert isinstance(devices, list)
-
     instructions = get_v4l2_setup_instructions()
     assert "SIGNORA VIRTUAL CAMERA SETUP GUIDE" in instructions
     assert "v4l2loopback" in instructions
@@ -108,3 +107,17 @@ def test_web_stream_server_lifecycle():
         server.push_status(fps=30.0)
         server.stop()
         assert not server._running
+
+
+def test_streaming_output_readiness_flags():
+    """The UI waits for `ready`, not merely for the HTTP port to bind."""
+    output = StreamingOutput()
+    assert output.ready is False
+
+    output.mark_ready("synthetic")
+    assert output.ready is True
+    assert output.camera == "synthetic"
+
+    output.mark_failed("camera disappeared")
+    assert output.ready is False
+    assert "camera disappeared" in output.error
