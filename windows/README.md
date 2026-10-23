@@ -20,7 +20,13 @@ control of the visual design.
 
 ## One-click install (stock Windows laptop)
 
-1. Copy or clone this repository onto the Windows laptop.
+**Extract the ZIP first.** Double-clicking a file inside the archive runs it
+from a temporary `%TEMP%` copy, and PowerShell then reports
+`The argument ... to the -File parameter does not exist`. Right-click the ZIP,
+choose **Extract All...**, and run the installer from the extracted folder.
+
+1. Copy or clone this repository onto the Windows laptop, or extract the ZIP to
+   a real folder such as `C:\Signora`.
 2. Double-click **`Pixel-Install.cmd`** for the game-style installer, or
    **`Setup-Windows.cmd`** for the plain one.
 3. The script provisions:

@@ -73,16 +73,14 @@ signora doctor
 ```
 
 ### Windows One-Shot Setup
-Get the code onto the laptop. No git is required: open
-[signora-windows](https://github.com/RAZOR-NINJAS/signora-windows), choose
-**Code > Download ZIP**, and extract it. With git:
-```powershell
-git clone https://github.com/RAZOR-NINJAS/signora-windows.git
-cd signora-windows
-```
+**Extract the ZIP first.** Running files from inside the archive starts a
+temporary copy under `%TEMP%` and the scripts fail with
+`The argument ... to the -File parameter does not exist`. Right-click the ZIP,
+choose **Extract All...**, and use the extracted folder.
 
-From the repository root, double-click `Pixel-Install.cmd` for the animated
-pixel-game installer, or run:
+Open [signora-windows](https://github.com/RAZOR-NINJAS/signora-windows), choose
+**Code > Download ZIP**, extract it to `C:\Signora`, then from that folder
+double-click `Pixel-Install.cmd` for the animated pixel-game installer, or run:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-windows.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-windows.ps1 -Pixel

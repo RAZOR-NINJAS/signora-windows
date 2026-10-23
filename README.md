@@ -44,11 +44,15 @@ curl -fsSL https://raw.githubusercontent.com/RAZOR-NINJAS/signora/main/install.s
 ```
 
 ### Windows 10 & 11 (Native WinUI 3 App, Non-Admin)
-Get the code onto the laptop, then double-click **`Pixel-Install.cmd`** for the
-animated, game-style installer, or **`Setup-Windows.cmd`** for the plain one.
-No git is required: open
-[signora-windows](https://github.com/RAZOR-NINJAS/signora-windows), choose
-**Code > Download ZIP**, and extract it. With git:
+**Extract the ZIP before running anything.** Double-clicking a file inside the
+archive opens a temporary copy under `%TEMP%`, and the scripts cannot run from
+there. Right-click the ZIP, choose **Extract All...**, then run the installer
+from the extracted folder.
+
+Open [signora-windows](https://github.com/RAZOR-NINJAS/signora-windows), choose
+**Code > Download ZIP**, extract it to a real folder such as `C:\Signora`, then
+double-click **`Pixel-Install.cmd`** for the animated, game-style installer, or
+**`Setup-Windows.cmd`** for the plain one. With git:
 ```powershell
 git clone https://github.com/RAZOR-NINJAS/signora-windows.git
 cd signora-windows
