@@ -22,6 +22,7 @@ from signora.core.hands import HAND_CONNECTIONS, HandPipeline
 from signora.core.motion import HandMotionTracker
 from signora.isl.config import STATIC_WORDS, get_expected_hands
 from signora.isl.features import extract_features
+from signora.models.manifest import get_default_models_dir
 
 # Wayland / X11 compatibility
 os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
@@ -854,7 +855,9 @@ def run_isl_collector(
         if state == "TRAINING":
             return
         sample_files = list(target_data_dir.glob("*.npy")) if target_data_dir.exists() else []
-        base_model_file = MODELS_DIR / ("isl_spatial_mlp.pt" if enable_body else "isl_mlp.pt")
+        base_model_file = get_default_models_dir() / (
+            "isl_spatial_mlp.pt" if enable_body else "isl_mlp.pt"
+        )
         if not sample_files and not base_model_file.exists():
             status_msg = f"⚠ No recorded samples in {target_data_dir.name}/! Press [SPACE] to record first."
             status_msg_expiry = time.time() + 4.5

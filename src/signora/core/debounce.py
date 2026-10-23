@@ -2,7 +2,7 @@
 
 import time
 from collections import deque
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 
 def now_ms() -> float:
