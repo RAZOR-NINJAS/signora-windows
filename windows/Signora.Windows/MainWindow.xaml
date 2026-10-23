@@ -26,6 +26,7 @@
             PaneDisplayMode="LeftCompact"
             IsBackButtonVisible="Collapsed"
             IsSettingsVisible="False"
+            ItemInvoked="Nav_ItemInvoked"
             SelectionChanged="Nav_SelectionChanged">
 
             <NavigationView.MenuItems>

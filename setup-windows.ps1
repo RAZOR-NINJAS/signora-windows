@@ -682,21 +682,42 @@ Set-Content -Path (Join-Path $appDir "signora-root.txt") -Value $Root -Encoding 
 
 # ------------------------------------------------------------------- shortcut
 if (-not $NoShortcut) {
-    Write-Step "Desktop shortcut"
+    Write-Step "Start menu and desktop shortcuts"
+
+    $shell = $null
+    try {
+        $shell = New-Object -ComObject WScript.Shell
+    } catch {
+        $shell = $null
+    }
+
+    $shortcutPaths = @()
     $desktop = [Environment]::GetFolderPath("Desktop")
     if ($desktop -and (Test-Path $desktop)) {
-        try {
-            $shortcutPath = Join-Path $desktop "Signora.lnk"
-            $shell = New-Object -ComObject WScript.Shell
-            $shortcut = $shell.CreateShortcut($shortcutPath)
-            $shortcut.TargetPath = $appExe
-            $shortcut.WorkingDirectory = $appDir
-            $shortcut.IconLocation = "$appExe,0"
-            $shortcut.Description = "Signora - Offline Sign Language Recognition"
-            $shortcut.Save()
-            Write-Ok "Shortcut: $shortcutPath"
-        } catch {
-            Write-Warn "Could not create the desktop shortcut: $_"
+        $shortcutPaths += (Join-Path $desktop "Signora.lnk")
+    }
+    $startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
+    if (Test-Path $startMenu) {
+        $shortcutPaths += (Join-Path $startMenu "Signora.lnk")
+    }
+
+    if (-not $shell) {
+        Write-Warn "Could not create shortcuts on this host (WScript.Shell unavailable)."
+    } elseif ($shortcutPaths.Count -eq 0) {
+        Write-Warn "No desktop or Start menu folder was found."
+    } else {
+        foreach ($shortcutPath in $shortcutPaths) {
+            try {
+                $shortcut = $shell.CreateShortcut($shortcutPath)
+                $shortcut.TargetPath = $appExe
+                $shortcut.WorkingDirectory = $appDir
+                $shortcut.IconLocation = "$appExe,0"
+                $shortcut.Description = "Signora - Offline Sign Language Recognition"
+                $shortcut.Save()
+                Write-Ok "Shortcut: $shortcutPath"
+            } catch {
+                Write-Warn "Could not create $shortcutPath : $_"
+            }
         }
     }
 }

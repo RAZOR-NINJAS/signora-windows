@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import signal
 import sys
 import time
@@ -78,20 +79,44 @@ def _as_hands(landmarks: Any, handedness: Any) -> List[Dict[str, Any]]:
 
 
 def _select_source(source: Any, use_fake: bool) -> Tuple[Any, bool]:
-    """Probe alternative cameras when the requested index is unavailable."""
-    if use_fake:
+    """Resolve the requested camera.
+
+    Probing every device used to run unconditionally; on Windows DirectShow it
+    can block for tens of seconds, which made the desktop UI time out before the
+    bridge was even listening. Probing is now opt-in (SIGNORA_PROBE_CAMERAS=1)
+    and a missing camera is reported instead of silently replaced by a
+    synthetic feed.
+    """
+    if use_fake or os.environ.get("SIGNORA_FAKE_CAMERA", "0") in ("1", "true", "True"):
         return source, True
+
+    requested = int(source) if str(source).isdigit() else source
+
+    if os.environ.get("SIGNORA_PROBE_CAMERAS", "0") not in ("1", "true", "True"):
+        return requested, False
+
     try:
-        cams = probe_cameras(max_probe=5)
+        cams = probe_cameras(max_probe=3)
     except Exception:
         cams = []
     indexes = {int(c["index"]) for c in cams}
-    requested = int(source) if str(source).isdigit() else source
     if isinstance(requested, int) and requested in indexes:
         return requested, False
     for idx in sorted(indexes):
         return idx, False
-    return 0, True
+    return requested, False
+
+
+
+def _report_camera_failure(source: Any, error: Optional[Exception]) -> None:
+    detail = str(error) if error else "the camera opened but produced no frame within 20 seconds"
+    print(f"[NativeBridge] Camera failed (source={source}): {detail}", file=sys.stderr, flush=True)
+    print(
+        "[NativeBridge] Set a different camera index in Signora Settings, and check "
+        "Settings > Privacy & Security > Camera allows desktop apps.",
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 def run_native_bridge(
@@ -111,16 +136,20 @@ def run_native_bridge(
 
     quality = get_quality_profile()
     high = quality == "high"
+
+    # Bind the status port first: the desktop UI polls /api/health, and probing
+    # cameras can take several seconds on Windows. If we probe first the UI
+    # declares startup failed before the server ever answers.
+    server = WebStreamServer(host="127.0.0.1", port=port)
+    if not server.start():
+        print(f"[NativeBridge] Could not bind http://127.0.0.1:{port}", file=sys.stderr)
+        return 1
+
     source, use_fake = _select_source(source, fake_camera)
 
     print(f"[NativeBridge] mode={mode} source={source} port={port} quality={quality}", flush=True)
     if use_fake:
         print("[NativeBridge] No physical camera found; using synthetic camera.", flush=True)
-
-    server = WebStreamServer(host="127.0.0.1", port=port)
-    if not server.start():
-        print(f"[NativeBridge] Could not bind http://127.0.0.1:{port}", file=sys.stderr)
-        return 1
 
     tts = PiperTTS(enabled=not no_tts)
     paused = False
@@ -163,8 +192,8 @@ def run_native_bridge(
             height=WINDOW_HEIGHT,
             inference_width=960 if high else 640,
         )
-        if not pipe.started.wait(timeout=8) or pipe.error:
-            print(f"[NativeBridge] Camera failed: {pipe.error}", file=sys.stderr)
+        if not pipe.started.wait(timeout=20) or pipe.error:
+            _report_camera_failure(source, pipe.error)
             server.stop()
             return 1
 
@@ -251,8 +280,8 @@ def run_native_bridge(
         width=WINDOW_WIDTH,
         height=WINDOW_HEIGHT,
     )
-    if not pipe.started.wait(timeout=8) or pipe.error:
-        print(f"[NativeBridge] Camera failed: {pipe.error}", file=sys.stderr)
+    if not pipe.started.wait(timeout=20) or pipe.error:
+        _report_camera_failure(source, pipe.error)
         server.stop()
         return 1
 

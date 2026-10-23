@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Signora.Windows.Pages;
+using Signora.Windows.Services;
 
 namespace Signora.Windows;
 
@@ -24,27 +25,48 @@ public sealed partial class MainWindow : Window
         Nav.SelectedItem = Nav.MenuItems[0];
         if (ContentFrame.CurrentSourcePageType is null)
         {
-            ContentFrame.Navigate(typeof(LivePage));
+            NavigateTo("live");
         }
     }
 
     private void Nav_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (args.SelectedItem is not NavigationViewItem item)
+        if (args.SelectedItem is NavigationViewItem item)
         {
-            return;
+            NavigateTo(item.Tag?.ToString());
         }
+    }
 
-        Type page = item.Tag switch
+    private void Nav_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
+    {
+        if (args.InvokedItemContainer is NavigationViewItem item)
+        {
+            NavigateTo(item.Tag?.ToString());
+        }
+    }
+
+    private void NavigateTo(string? tag)
+    {
+        Type page = tag switch
         {
             "train" => typeof(TrainPage),
             "settings" => typeof(SettingsPage),
             _ => typeof(LivePage),
         };
 
-        if (ContentFrame.CurrentSourcePageType != page)
+        if (ContentFrame.CurrentSourcePageType == page)
+        {
+            return;
+        }
+
+        try
         {
             ContentFrame.Navigate(page);
+        }
+        catch (Exception ex)
+        {
+            // A broken page must not take the whole window down; log and stay put.
+            AppLog.Write($"navigate:{page.Name}", ex);
         }
     }
 }

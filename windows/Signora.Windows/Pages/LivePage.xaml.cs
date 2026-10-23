@@ -125,7 +125,10 @@ public sealed partial class LivePage : Page
             }
             else
             {
-                WaitingText.Text = "Engine failed to start. Check that the installer finished.";
+                string detail = string.IsNullOrWhiteSpace(_engine.LastLog)
+                    ? "Engine failed to start. Run Pixel-Install.cmd again."
+                    : $"Engine: {_engine.LastLog}";
+                WaitingText.Text = detail;
                 StartStopButton.Content = "Start";
             }
         }

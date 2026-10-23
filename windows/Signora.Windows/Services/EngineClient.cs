@@ -24,6 +24,15 @@ public sealed class EngineClient : IAsyncDisposable
     private Task? _videoTask;
     private Task? _statusTask;
 
+    /// <summary>Most recent engine output line, for surfacing failures in the UI.</summary>
+    public string LastLog { get; private set; } = "";
+
+    private static readonly object LogGate = new();
+    private static readonly string LogFile = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Signora",
+        "engine.log");
+
     public EngineClient(SettingsStore settings, int port = 8899)
     {
         _settings = settings;
@@ -60,11 +69,22 @@ public sealed class EngineClient : IAsyncDisposable
 
         if (!File.Exists(EnginePaths.Python) && Path.IsPathRooted(EnginePaths.Python))
         {
-            Log?.Invoke($"Python engine not found: {EnginePaths.Python}");
+            Record($"Python engine not found: {EnginePaths.Python}");
             return false;
         }
 
         _cts = new CancellationTokenSource();
+
+        LastLog = "";
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(LogFile)!);
+            File.WriteAllText(LogFile, "");
+        }
+        catch
+        {
+            // Logging is diagnostic only; never block startup on it.
+        }
 
         var psi = new ProcessStartInfo
         {
@@ -113,30 +133,30 @@ public sealed class EngineClient : IAsyncDisposable
         {
             if (!string.IsNullOrWhiteSpace(e.Data))
             {
-                Log?.Invoke(e.Data);
+                Record(e.Data);
             }
         };
         _process.ErrorDataReceived += (_, e) =>
         {
             if (!string.IsNullOrWhiteSpace(e.Data))
             {
-                Log?.Invoke(e.Data);
+                Record(e.Data);
             }
         };
-        _process.Exited += (_, _) => Log?.Invoke("Engine process exited.");
+        _process.Exited += (_, _) => Record("Engine process exited.");
 
         try
         {
             if (!_process.Start())
             {
-                Log?.Invoke("Could not start the Python engine.");
+                Record("Could not start the Python engine.");
                 ResetProcess();
                 return false;
             }
         }
         catch (Exception ex)
         {
-            Log?.Invoke($"Could not start the Python engine: {ex.Message}");
+            Record($"Could not start the Python engine: {ex.Message}");
             ResetProcess();
             return false;
         }
@@ -144,7 +164,7 @@ public sealed class EngineClient : IAsyncDisposable
         _process.BeginOutputReadLine();
         _process.BeginErrorReadLine();
 
-        for (int attempt = 0; attempt < 120; attempt++)
+        for (int attempt = 0; attempt < 240; attempt++)
         {
             if (ct.IsCancellationRequested)
             {
@@ -171,14 +191,17 @@ public sealed class EngineClient : IAsyncDisposable
 
             if (exited)
             {
-                Log?.Invoke($"Engine exited during startup (code {process.ExitCode}).");
+                Record($"Engine exited during startup (code {process.ExitCode}).");
                 await StopAsync();
                 return false;
             }
 
             try
             {
-                using var response = await _http.GetAsync($"{BaseUrl}/api/health", ct);
+                // Bound each probe: a half-open socket must not stall startup.
+                using var probe = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                probe.CancelAfter(TimeSpan.FromSeconds(3));
+                using var response = await _http.GetAsync($"{BaseUrl}/api/health", probe.Token);
                 if (response.IsSuccessStatusCode)
                 {
                     CancellationToken token = cts.Token;
@@ -203,9 +226,27 @@ public sealed class EngineClient : IAsyncDisposable
             }
         }
 
-        Log?.Invoke("Engine did not become ready in time.");
+        Record("Engine did not become ready in time.");
         await StopAsync();
         return false;
+    }
+
+    private void Record(string line)
+    {
+        LastLog = line;
+        try
+        {
+            lock (LogGate)
+            {
+                File.AppendAllText(LogFile, $"[{DateTimeOffset.Now:HH:mm:ss}] {line}{Environment.NewLine}");
+            }
+        }
+        catch
+        {
+            // Ignore log write failures.
+        }
+
+        Log?.Invoke(line);
     }
 
     private void ResetProcess()
@@ -272,7 +313,7 @@ public sealed class EngineClient : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Log?.Invoke($"Command failed: {ex.Message}");
+            Record($"Command failed: {ex.Message}");
         }
     }
 
@@ -335,7 +376,7 @@ public sealed class EngineClient : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Log?.Invoke($"Video stream stopped: {ex.Message}");
+            Record($"Video stream stopped: {ex.Message}");
         }
     }
 
