@@ -1,0 +1,42 @@
+name: Windows app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "windows/**"
+      - ".github/workflows/windows-app.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Info
+        run: dotnet --info
+
+      - name: Restore
+        run: dotnet restore windows/Signora.Windows/Signora.Windows.csproj -r win-x64
+
+      - name: Build
+        run: dotnet build windows/Signora.Windows/Signora.Windows.csproj -c Release -p:Platform=x64 -r win-x64 --no-restore
+
+      - name: Publish
+        run: dotnet publish windows/Signora.Windows/Signora.Windows.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained true -p:WindowsAppSDKSelfContained=true -p:PublishSingleFile=false -o app
+
+      - name: Upload build output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signora-windows-app
+          path: app
+          if-no-files-found: ignore

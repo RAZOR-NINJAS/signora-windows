@@ -893,14 +893,12 @@ if (-not $needsPublish) {
     }
 
     if ($publishCode -ne 0) {
-        Write-Fail "dotnet publish failed with code $publishCode."
-        Write-Fail "Full log: $publishLog"
-        exit $publishCode
+        $tail = Get-LogTail $publishLog 40
+        throw "dotnet publish failed with code $publishCode.`r`n$tail"
     }
 
     if (-not (Test-Path $appExe)) {
-        Write-Fail "Publish finished but $appExe is missing."
-        exit 1
+        throw "Publish finished but $appExe is missing."
     }
     Write-Ok "Published: $appExe"
 }
